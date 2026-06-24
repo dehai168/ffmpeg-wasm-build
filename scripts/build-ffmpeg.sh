@@ -69,6 +69,8 @@ build_configure_args() {
     "--extra-cflags=-I${DEPS_DIR}/include"
     "--extra-cxxflags=-I${DEPS_DIR}/include"
     "--extra-ldflags=-L${DEPS_DIR}/lib"
+    # 避免 ffmpeg_g 在 pthread 构建下使用 Emscripten 默认 16MB 初始内存导致链接失败
+    "--extra-ldexeflags=-sINITIAL_MEMORY=${INITIAL_MEMORY:-67108864}"
   )
 
   if [ "${ENABLE_H264_ENCODER:-0}" -eq 1 ] || [ "${ENABLE_H265_ENCODER:-0}" -eq 1 ]; then
