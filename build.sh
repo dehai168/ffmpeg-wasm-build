@@ -18,6 +18,7 @@ log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 # ---------- 加载配置 ----------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/build.config.sh"
+ENV_OUTPUT_DIR="${OUTPUT_DIR-}"
 
 if [ ! -f "$CONFIG_FILE" ]; then
   log_error "找不到配置文件: $CONFIG_FILE"
@@ -68,7 +69,15 @@ export FFMPEG_SRC_DIR="$SCRIPT_DIR/.build/ffmpeg-src"
 # FFmpeg 构建目录
 export FFMPEG_BUILD_DIR="$SCRIPT_DIR/.build/ffmpeg-build"
 # 最终产物输出目录
-export OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/output}"
+if [ -n "${ENV_OUTPUT_DIR:-}" ]; then
+  OUTPUT_DIR="$ENV_OUTPUT_DIR"
+fi
+OUTPUT_DIR="${OUTPUT_DIR:-$SCRIPT_DIR/output}"
+case "$OUTPUT_DIR" in
+  /*) ;;
+  *) OUTPUT_DIR="$SCRIPT_DIR/${OUTPUT_DIR#./}" ;;
+esac
+export OUTPUT_DIR
 
 # 导出所有配置，供子脚本读取
 export FFMPEG_VERSION X264_VERSION X265_VERSION
