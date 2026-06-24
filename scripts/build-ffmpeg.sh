@@ -216,8 +216,7 @@ emconfigure ./configure $CONFIGURE_ARGS
 
 # ---- 编译 FFmpeg（仅编译为 .a 和 .o，不链接）--------------------------------
 log_info "编译 FFmpeg 库文件 (emmake make, jobs=$MAKE_JOBS)..."
-# EXEEXT=.js 告诉 FFmpeg Makefile 最终可执行文件后缀为 .js
-# 但我们用 --disable-programs 不生成可执行文件，手动链接
+# 编译静态库和 ffmpeg CLI 相关对象文件，最终由 emcc 手动链接为 WASM
 emmake make -j"$MAKE_JOBS"
 emmake make install
 
@@ -251,8 +250,8 @@ done
 
 # 某些配置下默认 make 不会生成完整的 fftools 依赖，补编译一次 ffmpeg 目标
 if [ ! -f "$FFMPEG_SRC/fftools/cmdutils.o" ] || [ ! -f "$FFMPEG_SRC/fftools/opt_common.o" ]; then
-  log_warn "fftools 目标文件不完整，尝试补编译 fftools/ffmpeg..."
-  emmake make -j"$MAKE_JOBS" fftools/ffmpeg || true
+  log_warn "fftools 目标文件不完整，尝试补编译 ffmpeg 目标..."
+  emmake make -j"$MAKE_JOBS" ffmpeg || true
   FFTOOLS_OBJS=()
   for obj in "$FFMPEG_SRC/fftools/ffmpeg.o" "$FFMPEG_SRC"/fftools/ffmpeg_*.o \
              "$FFMPEG_SRC/fftools/cmdutils.o" "$FFMPEG_SRC/fftools/opt_common.o" \
