@@ -1,0 +1,169 @@
+name: Build FFmpeg WASM
+
+# ============================================================
+# 触发方式：手动触发（workflow_dispatch）
+# 在 GitHub 仓库页面 Actions → Build FFmpeg WASM → Run workflow
+# ============================================================
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release 标签（例如 v1.0.0）"
+        required: true
+        default: "v1.0.0"
+      release_name:
+        description: "Release 名称（留空则使用标签名）"
+        required: false
+        default: ""
+      prerelease:
+        description: "是否标记为预发布版本"
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  build:
+    name: Build FFmpeg WASM
+    runs-on: ubuntu-latest
+
+    steps:
+      # --------------------------------------------------------
+      # 1. 拉取代码
+      # --------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # --------------------------------------------------------
+      # 2. 安装 Emscripten SDK
+      # 版本由 build.config.sh 中的 EMSDK_VERSION 决定，
+      # 这里读取该值传给 action
+      # --------------------------------------------------------
+      - name: Read Emscripten version from config
+        id: read_config
+        run: |
+          source build.config.sh
+          echo "emsdk_version=${EMSDK_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "output_name=${OUTPUT_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Emscripten SDK
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ steps.read_config.outputs.emsdk_version }}
+          # 缓存 emsdk 以加速后续运行
+          actions-cache-folder: ".emsdk-cache"
+
+      # --------------------------------------------------------
+      # 3. 安装系统编译依赖
+      # --------------------------------------------------------
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            nasm \
+            cmake \
+            ninja-build \
+            pkg-config \
+            python3 \
+            git \
+            curl \
+            ca-certificates
+
+      # --------------------------------------------------------
+      # 4. 缓存依赖库编译结果（libx264 / libx265）
+      # 缓存键包含配置文件 hash，配置改变时自动失效
+      # --------------------------------------------------------
+      - name: Cache build dependencies
+        uses: actions/cache@v4
+        with:
+          path: .build/deps
+          key: deps-${{ runner.os }}-${{ hashFiles('build.config.sh') }}
+          restore-keys: |
+            deps-${{ runner.os }}-
+
+      # --------------------------------------------------------
+      # 5. 赋予脚本执行权限
+      # --------------------------------------------------------
+      - name: Make scripts executable
+        run: chmod +x build.sh scripts/*.sh
+
+      # --------------------------------------------------------
+      # 6. 执行编译（核心步骤）
+      # --------------------------------------------------------
+      - name: Build FFmpeg WASM
+        run: ./build.sh
+        env:
+          # 覆盖输出目录为 GitHub workspace 内的 output/
+          OUTPUT_DIR: ${{ github.workspace }}/output
+
+      # --------------------------------------------------------
+      # 7. 上传产物（供下载 / 后续步骤使用）
+      # --------------------------------------------------------
+      - name: Upload WASM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-wasm-${{ github.event.inputs.tag_name }}
+          path: output/
+          retention-days: 30
+
+      # --------------------------------------------------------
+      # 8. 计算产物 SHA256 摘要（放入 Release Notes）
+      # --------------------------------------------------------
+      - name: Generate checksums
+        run: |
+          cd output
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      # --------------------------------------------------------
+      # 9. 创建 GitHub Release 并上传 WASM 文件
+      # --------------------------------------------------------
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag_name }}
+          name: ${{ github.event.inputs.release_name || github.event.inputs.tag_name }}
+          prerelease: ${{ github.event.inputs.prerelease }}
+          # Release 说明：包含构建信息和文件摘要
+          body: |
+            ## FFmpeg WASM Build
+
+            **构建时间：** ${{ github.event.repository.updated_at }}
+            **触发者：** @${{ github.actor }}
+            **Commit：** ${{ github.sha }}
+
+            ### 包含内容
+            - `${{ steps.read_config.outputs.output_name }}.js` — JavaScript 胶水代码（模块化，通过 `createFFmpegCore()` 初始化）
+            - `${{ steps.read_config.outputs.output_name }}.wasm` — WebAssembly 二进制文件
+            - `SHA256SUMS.txt` — 文件完整性校验
+
+            ### 使用方式
+            ```html
+            <script>
+              async function initFFmpeg() {
+                const script = document.createElement('script');
+                script.src = 'https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/${{ steps.read_config.outputs.output_name }}.js';
+                document.head.appendChild(script);
+                await new Promise(r => script.onload = r);
+
+                const ffmpeg = await createFFmpegCore({
+                  locateFile: (path) =>
+                    `https://github.com/${{ github.repository }}/releases/download/${{ github.event.inputs.tag_name }}/${path}`
+                });
+
+                console.log('FFmpeg WASM ready!');
+              }
+            </script>
+            ```
+
+            ### 文件摘要 (SHA256)
+            见附件 `SHA256SUMS.txt`
+
+          # 上传 output/ 目录下的所有文件作为 Release 资源
+          files: |
+            output/${{ steps.read_config.outputs.output_name }}.js
+            output/${{ steps.read_config.outputs.output_name }}.wasm
+            output/SHA256SUMS.txt
+          # 如果同一 tag 已存在 Release，追加文件而非报错
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

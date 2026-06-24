@@ -1,0 +1,46 @@
+{
+  // Codespace / Dev Container 配置
+  // 使用官方 Emscripten SDK 镜像，内置 emcc / em++ / emsdk 等工具链
+  "name": "FFmpeg WASM Build Environment",
+  "image": "emscripten/emsdk:latest",
+
+  // 额外安装的 Dev Container 功能
+  "features": {
+    // Git（镜像内已内置，此处确保版本最新）
+    "ghcr.io/devcontainers/features/git:1": {},
+    // GitHub CLI，方便在 Codespace 内手动触发 Action 或创建 Release
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  // VS Code 定制
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        // Shell 脚本语法检查
+        "timonwong.shellcheck",
+        // Shell 脚本格式化
+        "foxundermoon.shell-format",
+        // Makefile 支持
+        "ms-vscode.makefile-tools",
+        // C/C++ 代码高亮（查看 FFmpeg 源码时使用）
+        "ms-vscode.cpptools"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "editor.formatOnSave": true
+      }
+    }
+  },
+
+  // 容器创建后执行：安装编译依赖并赋予脚本执行权限
+  "postCreateCommand": "apt-get update -qq && apt-get install -y --no-install-recommends nasm cmake ninja-build python3 pkg-config && chmod +x /workspaces/ffmpeg-wasm-build/*.sh /workspaces/ffmpeg-wasm-build/scripts/*.sh 2>/dev/null || true && echo 'Environment ready. Run ./build.sh to start building.'",
+
+  // 以 root 运行，避免权限问题
+  "remoteUser": "root",
+
+  // 将本地 .build-cache 目录挂载到容器，跨会话复用编译产物加快二次构建速度
+  // 首次使用时此目录会自动创建
+  "mounts": [
+    "source=${localWorkspaceFolder}/.build-cache,target=/root/.build-cache,type=bind,consistency=cached"
+  ]
+}
