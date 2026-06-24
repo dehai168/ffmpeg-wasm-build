@@ -95,7 +95,7 @@ mkdir -p "$DEPS_DIR" "$FFMPEG_BUILD_DIR" "$OUTPUT_DIR" "${BUILD_CACHE_DIR:-/tmp/
 
 # ---------- 步骤 1：编译依赖库 -----------------------------------------------
 if [ "$SKIP_DEPS" -eq 0 ]; then
-  log_info "========== 步骤 1/2：编译依赖库（libx264 / libx265） =========="
+  log_info "========== 步骤 1/2：按需编译编码依赖库（libx264 / libx265） =========="
   bash "$SCRIPT_DIR/scripts/build-deps.sh"
   log_ok "依赖库编译完成"
 else
@@ -122,4 +122,4 @@ log_info "JS 使用方式示例："
 echo "  import createFFmpegCore from './${OUTPUT_NAME}.js';"
 echo "  const ffmpeg = await createFFmpegCore();"
 echo "  ffmpeg.FS('writeFile', 'input.mp4', data);"
-echo "  await ffmpeg.run('-i', 'input.mp4', '-c:v', 'libx264', 'output.mp4');"
+echo "  ffmpeg.callMain(['-i', 'input.mp4', '-f', 'null', '-']);"

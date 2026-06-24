@@ -1,6 +1,6 @@
 # ffmpeg-wasm-build
 
-将 FFmpeg 编译为 **WebAssembly (WASM)**，供 H5 播放器在浏览器端直接调用，支持 **H.264 / H.265** 编解码。
+将 FFmpeg 编译为 **WebAssembly (WASM)**，供 H5 播放器在浏览器端直接调用，默认仅保留 **H.264 / H.265 / AAC / Opus** 解码与常见容器解封装能力，以尽量缩小 `.wasm` 体积并缩短编译时间。
 
 ---
 
@@ -9,9 +9,9 @@
 | 功能 | 说明 |
 |---|---|
 | H.264 解码 | 内置软件解码器，无需外部库 |
-| H.264 编码 | 集成 libx264（可通过配置开关）|
+| H.264 编码 | 默认关闭；如确需转码可手动启用 libx264 |
 | H.265/HEVC 解码 | 内置软件解码器，无需外部库 |
-| H.265/HEVC 编码 | 集成 libx265（可通过配置开关）|
+| H.265/HEVC 编码 | 默认关闭；如确需转码可手动启用 libx265 |
 | 浏览器兼容 | x86 Chrome / Firefox / Safari / Edge |
 | 模块化输出 | `createFFmpegCore()` 工厂函数，支持 Web Worker |
 | 可配置编译参数 | 所有关键参数集中在 `build.config.sh` 中 |
@@ -28,7 +28,7 @@ ffmpeg-wasm-build/
 │   └── workflows/
 │       └── build.yml        # GitHub Actions 手动触发编译 + 自动 Release
 ├── scripts/
-│   ├── build-deps.sh        # 编译 libx264 / libx265（WASM 静态库）
+│   ├── build-deps.sh        # 按需编译 libx264 / libx265（WASM 静态库）
 │   └── build-ffmpeg.sh      # 下载、配置、编译 FFmpeg，链接生成 WASM
 ├── build.config.sh          # ⭐ 编译参数配置文件（按需修改此文件）
 ├── build.sh                 # 主编译入口
@@ -72,7 +72,7 @@ source /path/to/emsdk/emsdk_env.sh
 # （可选）修改编译配置
 vi build.config.sh
 
-# 开始编译（首次约需 20~60 分钟，视机器性能而定）
+# 开始编译（默认解码版通常明显快于完整编解码版）
 ./build.sh
 
 # 清理后重新编译
@@ -94,9 +94,11 @@ EMSDK_VERSION="3.1.58"      # Emscripten SDK 版本
 
 # 编解码器（0=关闭，1=开启）
 ENABLE_H264_DECODER=1       # H.264 解码（播放器必需）
-ENABLE_H264_ENCODER=1       # H.264 编码（需要 libx264，增加编译时间）
+ENABLE_H264_ENCODER=0       # H.264 编码（默认关闭）
 ENABLE_H265_DECODER=1       # H.265/HEVC 解码（播放器必需）
-ENABLE_H265_ENCODER=1       # H.265/HEVC 编码（需要 libx265，编译时间较长）
+ENABLE_H265_ENCODER=0       # H.265/HEVC 编码（默认关闭）
+ENABLE_AAC=1                # AAC 音频解码
+ENABLE_OPUS=1               # Opus 音频解码
 
 # WASM 内存
 INITIAL_MEMORY=$((64*1024*1024))    # 初始 64MB
@@ -129,14 +131,9 @@ async function main() {
   const videoData = new Uint8Array(await fetch('video.mp4').then(r => r.arrayBuffer()));
   ffmpeg.FS('writeFile', 'input.mp4', videoData);
 
-  // 执行转码（相当于命令行: ffmpeg -i input.mp4 -c:v libx264 output.mp4）
-  ffmpeg.callMain(['-i', 'input.mp4', '-c:v', 'libx264', 'output.mp4']);
-
-  // 读取输出文件
-  const output = ffmpeg.FS('readFile', 'output.mp4');
-  const url = URL.createObjectURL(new Blob([output], { type: 'video/mp4' }));
-
-  document.querySelector('video').src = url;
+  // 执行解码链路校验（相当于命令行: ffmpeg -i input.mp4 -f null -）
+  // 默认构建仅保留解码 / 解封装能力，不包含视频编码器
+  ffmpeg.callMain(['-i', 'input.mp4', '-f', 'null', '-']);
 }
 main();
 </script>
@@ -156,10 +153,9 @@ self.onmessage = async (e) => {
   });
 
   ffmpeg.FS('writeFile', inputName, inputData);
-  ffmpeg.callMain(['-i', inputName, '-c:v', 'libx264', 'output.mp4']);
-  const output = ffmpeg.FS('readFile', 'output.mp4');
+  ffmpeg.callMain(['-i', inputName, '-f', 'null', '-']);
 
-  self.postMessage({ output }, [output.buffer]);
+  self.postMessage({ ok: true });
 };
 ```
 
@@ -180,10 +176,10 @@ self.onmessage = async (e) => {
 ## 常见问题
 
 **Q: 编译需要多长时间？**  
-A: 首次完整编译（含 libx264/libx265）约需 20~60 分钟（取决于 CI runner 性能）。开启缓存后，第二次编译只需 5~15 分钟。
+A: 默认解码版由于不编译 libx264/libx265，通常会比完整编解码版快很多；若手动开启编码器，首次完整编译通常仍需 20~60 分钟（取决于 CI runner 性能）。
 
 **Q: 生成的 wasm 文件有多大？**  
-A: 启用 H.264+H.265 编解码的完整版约 8~15 MB（gzip 后约 3~6 MB）。可以通过关闭不需要的编解码器和格式减小体积。
+A: 默认解码版会明显小于包含 libx264/libx265 的完整编解码版。可以继续通过关闭不需要的解码器、解析器和容器格式来减小体积。
 
 **Q: 浏览器报 SharedArrayBuffer 错误怎么办？**  
 A: 将 `ENABLE_THREADS` 设为 `0`（默认），或在服务器响应头中添加：  
@@ -198,5 +194,5 @@ A: 修改 `build.config.sh` 后，运行 `./build.sh --skip-deps`（跳过依赖
 ## 许可证
 
 本项目构建脚本采用 MIT 许可证。  
-FFmpeg 本身采用 LGPL 2.1+（启用 GPL 组件如 libx264/libx265 后升级为 GPL 2+）。  
+默认解码版 FFmpeg 产物采用 LGPL 2.1+；如手动启用 libx264/libx265 等 GPL 组件，则整体许可证会升级为 GPL。  
 详见 [FFmpeg License](https://ffmpeg.org/legal.html)。

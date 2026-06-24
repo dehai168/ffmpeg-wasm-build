@@ -44,6 +44,8 @@ build_configure_args() {
     "--target-os=none"
     "--arch=x86_32"
     "--enable-cross-compile"
+    # 先关闭大部分组件，再按播放器所需能力逐项开启
+    "--disable-everything"
     # 禁用汇编优化（WASM 不支持）
     "--disable-x86asm"
     "--disable-inline-asm"
@@ -53,10 +55,7 @@ build_configure_args() {
     "--disable-debug"
     "--disable-runtime-cpudetect"
     "--disable-autodetect"
-    # 允许使用 GPL 许可证组件（libx264/libx265 需要）
-    "--enable-gpl"
-    "--enable-version3"
-    # 启用 ffmpeg 工具（编译 fftools/*.c）
+    # 保留 ffmpeg 工具作为 WASM 入口
     "--enable-ffmpeg"
     "--disable-ffprobe"
     "--disable-ffplay"
@@ -66,6 +65,10 @@ build_configure_args() {
     "--extra-ldflags=-L${DEPS_DIR}/lib"
   )
 
+  if [ "${ENABLE_H264_ENCODER:-0}" -eq 1 ] || [ "${ENABLE_H265_ENCODER:-0}" -eq 1 ]; then
+    args+=("--enable-gpl" "--enable-version3")
+  fi
+
   # ---- 网络协议 ----
   if [ "${ENABLE_NETWORK:-0}" -eq 0 ]; then
     args+=("--disable-network")
@@ -73,7 +76,7 @@ build_configure_args() {
 
   # ---- H.264 ----
   if [ "${ENABLE_H264_DECODER:-0}" -eq 1 ]; then
-    args+=("--enable-decoder=h264" "--enable-decoder=h264_v4l2m2m")
+    args+=("--enable-decoder=h264")
     args+=("--enable-parser=h264")
   fi
   if [ "${ENABLE_H264_ENCODER:-0}" -eq 1 ]; then
@@ -92,7 +95,6 @@ build_configure_args() {
   # ---- AAC ----
   if [ "${ENABLE_AAC:-0}" -eq 1 ]; then
     args+=("--enable-decoder=aac" "--enable-decoder=aac_latm")
-    args+=("--enable-encoder=aac")
     args+=("--enable-parser=aac" "--enable-parser=aac_latm")
   fi
 
@@ -104,7 +106,7 @@ build_configure_args() {
 
   # ---- Opus ----
   if [ "${ENABLE_OPUS:-0}" -eq 1 ]; then
-    args+=("--enable-decoder=opus" "--enable-encoder=opus")
+    args+=("--enable-decoder=opus")
     args+=("--enable-parser=opus")
   fi
 
@@ -116,21 +118,24 @@ build_configure_args() {
 
   # ---- 容器格式 ----
   if [ "${ENABLE_FMT_MP4:-0}" -eq 1 ]; then
-    args+=("--enable-demuxer=mov,mp4,m4a,3gp,3g2,mj2" "--enable-muxer=mp4" "--enable-muxer=mov")
+    args+=("--enable-demuxer=mov,mp4,m4a,3gp,3g2,mj2")
     args+=("--enable-protocol=file")
   fi
   if [ "${ENABLE_FMT_MKV:-0}" -eq 1 ]; then
-    args+=("--enable-demuxer=matroska" "--enable-muxer=matroska" "--enable-muxer=webm")
+    args+=("--enable-demuxer=matroska")
   fi
   if [ "${ENABLE_FMT_FLV:-0}" -eq 1 ]; then
-    args+=("--enable-demuxer=flv" "--enable-muxer=flv" "--enable-demuxer=live_flv")
+    args+=("--enable-demuxer=flv" "--enable-demuxer=live_flv")
   fi
   if [ "${ENABLE_FMT_HLS:-0}" -eq 1 ]; then
-    args+=("--enable-demuxer=hls" "--enable-muxer=hls" "--enable-protocol=file")
+    args+=("--enable-demuxer=hls" "--enable-protocol=file")
   fi
   if [ "${ENABLE_FMT_MPEGTS:-0}" -eq 1 ]; then
-    args+=("--enable-demuxer=mpegts" "--enable-demuxer=mpegtsraw" "--enable-muxer=mpegts")
+    args+=("--enable-demuxer=mpegts" "--enable-demuxer=mpegtsraw")
   fi
+
+  # 保留极小的 null muxer，便于在浏览器中做解码冒烟验证
+  args+=("--enable-muxer=null")
 
   # ---- 线程 ----
   if [ "${ENABLE_THREADS:-0}" -eq 0 ]; then
