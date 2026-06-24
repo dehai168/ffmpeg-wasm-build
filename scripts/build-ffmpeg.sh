@@ -23,13 +23,13 @@ download_ffmpeg() {
     log_warn "FFmpeg 源码已存在，跳过下载"
     return 0
   fi
+  mkdir -p "$FFMPEG_SRC"
   log_info "下载 FFmpeg $FFMPEG_VERSION 源码..."
   curl -L --retry 3 \
     -o "$FFMPEG_TARBALL" \
     "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
 
   log_info "解压 FFmpeg 源码..."
-  mkdir -p "$FFMPEG_SRC"
   tar -xf "$FFMPEG_TARBALL" -C "$FFMPEG_SRC" --strip-components=1
   log_ok "FFmpeg 源码准备完毕: $FFMPEG_SRC"
 }
