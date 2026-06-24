@@ -242,37 +242,29 @@ fi
 
 # ---- 收集 fftools 目标文件（ffmpeg 命令行工具的 .o 文件）--------------------
 FFTOOLS_OBJS=()
-for obj in fftools/ffmpeg.o fftools/ffmpeg_opt.o fftools/ffmpeg_filter.o \
-           fftools/ffmpeg_hw.o fftools/ffmpeg_demux.o fftools/ffmpeg_mux.o \
-           fftools/ffmpeg_enc.o fftools/ffmpeg_dec.o fftools/ffmpeg_sched.o \
-           fftools/cmdutils.o fftools/opt_common.o fftools/objpool.o \
-           fftools/sync_queue.o fftools/thread_queue.o; do
-  [ -f "$FFMPEG_SRC/$obj" ] && FFTOOLS_OBJS+=("$FFMPEG_SRC/$obj")
+for obj in "$FFMPEG_SRC/fftools/ffmpeg.o" "$FFMPEG_SRC"/fftools/ffmpeg_*.o \
+           "$FFMPEG_SRC/fftools/cmdutils.o" "$FFMPEG_SRC/fftools/opt_common.o" \
+           "$FFMPEG_SRC/fftools/objpool.o" "$FFMPEG_SRC/fftools/sync_queue.o" \
+           "$FFMPEG_SRC/fftools/thread_queue.o"; do
+  [ -f "$obj" ] && FFTOOLS_OBJS+=("$obj")
 done
 
-# 如果 fftools 对象文件不存在（disable-programs 情况），手动编译
-if [ ${#FFTOOLS_OBJS[@]} -eq 0 ]; then
-  log_warn "未找到 fftools .o 文件，尝试单独编译 fftools..."
-  emcc -c "$FFMPEG_SRC/fftools/ffmpeg.c" \
-    -I"$FFMPEG_SRC" -I"$FFMPEG_BUILD_DIR/include" -I"$DEPS_DIR/include" \
-    -DFFMPEG_MAIN=ffmpeg_main \
-    -o /tmp/ffmpeg_main.o 2>/dev/null || true
-
-  # 使用已有的编译配置重新生成 fftools
-  cd "$FFMPEG_SRC"
-  emmake make -j"$MAKE_JOBS" fftools/ffmpeg.o fftools/ffmpeg_opt.o \
-    fftools/ffmpeg_filter.o fftools/ffmpeg_hw.o fftools/ffmpeg_demux.o \
-    fftools/ffmpeg_mux.o fftools/ffmpeg_enc.o fftools/ffmpeg_dec.o \
-    fftools/ffmpeg_sched.o fftools/cmdutils.o fftools/opt_common.o \
-    fftools/objpool.o fftools/sync_queue.o fftools/thread_queue.o \
-    2>/dev/null || true
-  for obj in fftools/ffmpeg.o fftools/ffmpeg_opt.o fftools/ffmpeg_filter.o \
-             fftools/ffmpeg_hw.o fftools/ffmpeg_demux.o fftools/ffmpeg_mux.o \
-             fftools/ffmpeg_enc.o fftools/ffmpeg_dec.o fftools/ffmpeg_sched.o \
-             fftools/cmdutils.o fftools/opt_common.o fftools/objpool.o \
-             fftools/sync_queue.o fftools/thread_queue.o; do
-    [ -f "$FFMPEG_SRC/$obj" ] && FFTOOLS_OBJS+=("$FFMPEG_SRC/$obj")
+# 某些配置下默认 make 不会生成完整的 fftools 依赖，补编译一次 ffmpeg 目标
+if [ ! -f "$FFMPEG_SRC/fftools/cmdutils.o" ] || [ ! -f "$FFMPEG_SRC/fftools/opt_common.o" ]; then
+  log_warn "fftools 目标文件不完整，尝试补编译 fftools/ffmpeg..."
+  emmake make -j"$MAKE_JOBS" fftools/ffmpeg || true
+  FFTOOLS_OBJS=()
+  for obj in "$FFMPEG_SRC/fftools/ffmpeg.o" "$FFMPEG_SRC"/fftools/ffmpeg_*.o \
+             "$FFMPEG_SRC/fftools/cmdutils.o" "$FFMPEG_SRC/fftools/opt_common.o" \
+             "$FFMPEG_SRC/fftools/objpool.o" "$FFMPEG_SRC/fftools/sync_queue.o" \
+             "$FFMPEG_SRC/fftools/thread_queue.o"; do
+    [ -f "$obj" ] && FFTOOLS_OBJS+=("$obj")
   done
+fi
+
+if [ ${#FFTOOLS_OBJS[@]} -eq 0 ]; then
+  log_error "未找到可链接的 fftools 目标文件"
+  exit 1
 fi
 
 # ---- 最终 emcc 链接：生成 ffmpeg-core.js + ffmpeg-core.wasm ----------------
