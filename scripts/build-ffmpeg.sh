@@ -162,7 +162,7 @@ build_emcc_link_flags() {
     "-s INITIAL_MEMORY=${INITIAL_MEMORY:-67108864}"
     "-s MAXIMUM_MEMORY=${MAXIMUM_MEMORY:-2147483648}"
     # 导出供 JS 调用的函数
-    "-s EXPORTED_FUNCTIONS=[\"_main\",\"_proxy_main\"]"
+    "-s EXPORTED_FUNCTIONS=[\"_main\"]"
     # 导出运行时方法：FS（虚拟文件系统）、callMain（调用 main）
     "-s EXPORTED_RUNTIME_METHODS=[\"FS\",\"callMain\",\"ccall\",\"cwrap\"]"
     # 目标环境：web + worker（兼容主线程和 Web Worker）
@@ -243,7 +243,9 @@ fi
 # ---- 收集 fftools 目标文件（ffmpeg 命令行工具的 .o 文件）--------------------
 FFTOOLS_OBJS=()
 for obj in fftools/ffmpeg.o fftools/ffmpeg_opt.o fftools/ffmpeg_filter.o \
-           fftools/ffmpeg_hw.o fftools/cmdutils.o fftools/objpool.o \
+           fftools/ffmpeg_hw.o fftools/ffmpeg_demux.o fftools/ffmpeg_mux.o \
+           fftools/ffmpeg_enc.o fftools/ffmpeg_dec.o fftools/ffmpeg_sched.o \
+           fftools/cmdutils.o fftools/opt_common.o fftools/objpool.o \
            fftools/sync_queue.o fftools/thread_queue.o; do
   [ -f "$FFMPEG_SRC/$obj" ] && FFTOOLS_OBJS+=("$FFMPEG_SRC/$obj")
 done
@@ -259,9 +261,16 @@ if [ ${#FFTOOLS_OBJS[@]} -eq 0 ]; then
   # 使用已有的编译配置重新生成 fftools
   cd "$FFMPEG_SRC"
   emmake make -j"$MAKE_JOBS" fftools/ffmpeg.o fftools/ffmpeg_opt.o \
-    fftools/ffmpeg_filter.o fftools/cmdutils.o 2>/dev/null || true
+    fftools/ffmpeg_filter.o fftools/ffmpeg_hw.o fftools/ffmpeg_demux.o \
+    fftools/ffmpeg_mux.o fftools/ffmpeg_enc.o fftools/ffmpeg_dec.o \
+    fftools/ffmpeg_sched.o fftools/cmdutils.o fftools/opt_common.o \
+    fftools/objpool.o fftools/sync_queue.o fftools/thread_queue.o \
+    2>/dev/null || true
   for obj in fftools/ffmpeg.o fftools/ffmpeg_opt.o fftools/ffmpeg_filter.o \
-             fftools/cmdutils.o; do
+             fftools/ffmpeg_hw.o fftools/ffmpeg_demux.o fftools/ffmpeg_mux.o \
+             fftools/ffmpeg_enc.o fftools/ffmpeg_dec.o fftools/ffmpeg_sched.o \
+             fftools/cmdutils.o fftools/opt_common.o fftools/objpool.o \
+             fftools/sync_queue.o fftools/thread_queue.o; do
     [ -f "$FFMPEG_SRC/$obj" ] && FFTOOLS_OBJS+=("$FFMPEG_SRC/$obj")
   done
 fi
