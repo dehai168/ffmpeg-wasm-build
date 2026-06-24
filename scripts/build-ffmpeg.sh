@@ -44,6 +44,12 @@ build_configure_args() {
     "--target-os=none"
     "--arch=x86_32"
     "--enable-cross-compile"
+    # 显式指定 Emscripten 工具链，确保 config.mak 中记录正确的编译器
+    "--cc=emcc"
+    "--cxx=em++"
+    "--ar=emar"
+    "--ranlib=emranlib"
+    "--nm=llvm-nm"
     # 先关闭大部分组件，再按播放器所需能力逐项开启
     "--disable-everything"
     # 禁用汇编优化（WASM 不支持）
