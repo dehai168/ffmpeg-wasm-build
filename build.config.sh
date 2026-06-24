@@ -30,22 +30,22 @@ EMSDK_VERSION="3.1.58"
 # 启用 H.264 软件解码器（播放器必需）
 ENABLE_H264_DECODER=1
 
-# 启用 H.264 硬件加速编码器 libx264（如需编码 H.264 输出，置为 1）
-ENABLE_H264_ENCODER=1
+# 启用 H.264 编码器 libx264（播放器默认不需要编码，保持 0 可显著减小体积）
+ENABLE_H264_ENCODER=0
 
 # 启用 H.265/HEVC 软件解码器（播放器必需）
 ENABLE_H265_DECODER=1
 
-# 启用 H.265/HEVC 编码器 libx265（如需编码 H.265 输出，置为 1；编译耗时较长）
-ENABLE_H265_ENCODER=1
+# 启用 H.265/HEVC 编码器 libx265（播放器默认不需要编码，保持 0 可显著减少编译时间）
+ENABLE_H265_ENCODER=0
 
-# 启用 AAC 音频编解码器（播放器通常需要）
+# 启用 AAC 音频解码器（播放器通常需要）
 ENABLE_AAC=1
 
 # 启用 MP3 音频解码器
 ENABLE_MP3=1
 
-# 启用 Opus 音频编解码器
+# 启用 Opus 音频解码器（低延迟流常用）
 ENABLE_OPUS=1
 
 # 启用 VP8/VP9 视频编解码器（WebM 格式支持）
