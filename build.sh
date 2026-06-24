@@ -19,6 +19,7 @@ log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/build.config.sh"
 ENV_OUTPUT_DIR="${OUTPUT_DIR-}"
+ENV_ENABLE_THREADS="${ENABLE_THREADS-}"
 
 if [ ! -f "$CONFIG_FILE" ]; then
   log_error "找不到配置文件: $CONFIG_FILE"
@@ -26,6 +27,10 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 # shellcheck source=build.config.sh
 source "$CONFIG_FILE"
+
+if [ -n "${ENV_ENABLE_THREADS:-}" ]; then
+  ENABLE_THREADS="$ENV_ENABLE_THREADS"
+fi
 
 # ---------- 解析命令行参数 ---------------------------------------------------
 DO_CLEAN=0

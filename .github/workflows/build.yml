@@ -93,6 +93,8 @@ jobs:
         run: ./build.sh
         env:
           # 覆盖输出目录为 GitHub workspace 内的 output/
+          # FFmpeg 6.1.x 的 ffmpeg CLI 目标依赖线程子系统；CI 显式启用 pthreads
+          ENABLE_THREADS: "1"
           OUTPUT_DIR: ${{ github.workspace }}/output
 
       # --------------------------------------------------------
