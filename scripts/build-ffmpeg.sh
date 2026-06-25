@@ -38,6 +38,8 @@ download_ffmpeg() {
 # 步骤 2：构建 FFmpeg configure 参数
 # =============================================================================
 build_configure_args() {
+  local _thread_cflag=""
+  [ "${ENABLE_THREADS:-0}" -eq 1 ] && _thread_cflag=" -pthread"
   local args=(
     "--prefix=$FFMPEG_BUILD_DIR"
     # 目标平台：none 表示裸机/WASM
@@ -66,9 +68,9 @@ build_configure_args() {
     "--disable-ffprobe"
     "--disable-ffplay"
     # 额外 C 编译参数
-    "--extra-cflags=-I${DEPS_DIR}/include"
-    "--extra-cxxflags=-I${DEPS_DIR}/include"
-    "--extra-ldflags=-L${DEPS_DIR}/lib"
+    "--extra-cflags=-I${DEPS_DIR}/include${_thread_cflag}"
+    "--extra-cxxflags=-I${DEPS_DIR}/include${_thread_cflag}"
+    "--extra-ldflags=-L${DEPS_DIR}/lib${_thread_cflag}"
     # 避免 ffmpeg_g 在 pthread 构建下使用 Emscripten 默认 16MB 初始内存导致链接失败
     "--extra-ldexeflags=-sINITIAL_MEMORY=${INITIAL_MEMORY:-67108864}"
   )
@@ -259,6 +261,9 @@ if [ ! -f "$FFMPEG_SRC/fftools/cmdutils.o" ] || [ ! -f "$FFMPEG_SRC/fftools/opt_
   if [ -f "$FFMPEG_SRC/ffbuild/config.mak" ]; then
     _ffbuild_cflags=$(sed -n 's/^CFLAGS=//p' "$FFMPEG_SRC/ffbuild/config.mak" | head -1)
   fi
+  # 线程编译标志：ENABLE_THREADS=1 时需要 -pthread 使 Emscripten 暴露 pthread.h
+  _thread_flag=""
+  [ "${ENABLE_THREADS:-0}" -eq 1 ] && _thread_flag="-pthread"
   for src in "$FFMPEG_SRC/fftools/"*.c; do
     obj="${src%.c}.o"
     [ -f "$obj" ] && continue
@@ -269,6 +274,7 @@ if [ ! -f "$FFMPEG_SRC/fftools/cmdutils.o" ] || [ ! -f "$FFMPEG_SRC/fftools/opt_
       -I"$FFMPEG_SRC/fftools" \
       -I"$FFMPEG_BUILD_DIR/include" \
       -I"$DEPS_DIR/include" \
+      $_thread_flag \
       $_ffbuild_cflags \
       -o "$obj"
   done
