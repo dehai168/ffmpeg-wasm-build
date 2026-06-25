@@ -35,13 +35,15 @@ download_ffmpeg() {
 }
 
 # =============================================================================
-# 步骤 2：构建 FFmpeg configure 参数
+# 步骤 2：构建 FFmpeg configure 参数（填充全局数组 CONFIGURE_ARGS）
 # =============================================================================
+CONFIGURE_ARGS=()
 build_configure_args() {
   # FFmpeg 6.1+ fftools/ffmpeg_dec.c uses pthread_t unconditionally, so -pthread
   # must always be present.  ENABLE_THREADS only controls the thread-pool size.
-  local _thread_cflag=" -pthread"
-  local args=(
+  # NOTE: these values contain spaces; they are stored as single array elements
+  # and must be expanded with "${CONFIGURE_ARGS[@]}" — never via word-split string.
+  CONFIGURE_ARGS=(
     "--prefix=$FFMPEG_BUILD_DIR"
     # 目标平台：none 表示裸机/WASM
     "--target-os=none"
@@ -68,94 +70,93 @@ build_configure_args() {
     "--enable-ffmpeg"
     "--disable-ffprobe"
     "--disable-ffplay"
-    # 额外 C 编译参数
-    "--extra-cflags=-I${DEPS_DIR}/include${_thread_cflag}"
-    "--extra-cxxflags=-I${DEPS_DIR}/include${_thread_cflag}"
-    "--extra-ldflags=-L${DEPS_DIR}/lib${_thread_cflag}"
+    # 额外 C 编译参数：值中含空格，必须作为整体传递（数组元素）
+    "--extra-cflags=-I${DEPS_DIR}/include -pthread"
+    "--extra-cxxflags=-I${DEPS_DIR}/include -pthread"
+    "--extra-ldflags=-L${DEPS_DIR}/lib -pthread"
     # 避免 ffmpeg_g 在 pthread 构建下使用 Emscripten 默认 16MB 初始内存导致链接失败
     "--extra-ldexeflags=-sINITIAL_MEMORY=${INITIAL_MEMORY:-67108864}"
   )
 
   if [ "${ENABLE_H264_ENCODER:-0}" -eq 1 ] || [ "${ENABLE_H265_ENCODER:-0}" -eq 1 ]; then
-    args+=("--enable-gpl" "--enable-version3")
+    CONFIGURE_ARGS+=("--enable-gpl" "--enable-version3")
   fi
 
   # ---- 网络协议 ----
   if [ "${ENABLE_NETWORK:-0}" -eq 0 ]; then
-    args+=("--disable-network")
+    CONFIGURE_ARGS+=("--disable-network")
   fi
 
   # ---- H.264 ----
   if [ "${ENABLE_H264_DECODER:-0}" -eq 1 ]; then
-    args+=("--enable-decoder=h264")
-    args+=("--enable-parser=h264")
+    CONFIGURE_ARGS+=("--enable-decoder=h264")
+    CONFIGURE_ARGS+=("--enable-parser=h264")
   fi
   if [ "${ENABLE_H264_ENCODER:-0}" -eq 1 ]; then
-    args+=("--enable-libx264" "--enable-encoder=libx264")
+    CONFIGURE_ARGS+=("--enable-libx264" "--enable-encoder=libx264")
   fi
 
   # ---- H.265/HEVC ----
   if [ "${ENABLE_H265_DECODER:-0}" -eq 1 ]; then
-    args+=("--enable-decoder=hevc")
-    args+=("--enable-parser=hevc")
+    CONFIGURE_ARGS+=("--enable-decoder=hevc")
+    CONFIGURE_ARGS+=("--enable-parser=hevc")
   fi
   if [ "${ENABLE_H265_ENCODER:-0}" -eq 1 ]; then
-    args+=("--enable-libx265" "--enable-encoder=libx265")
+    CONFIGURE_ARGS+=("--enable-libx265" "--enable-encoder=libx265")
   fi
 
   # ---- AAC ----
   if [ "${ENABLE_AAC:-0}" -eq 1 ]; then
-    args+=("--enable-decoder=aac" "--enable-decoder=aac_latm")
-    args+=("--enable-parser=aac" "--enable-parser=aac_latm")
+    CONFIGURE_ARGS+=("--enable-decoder=aac" "--enable-decoder=aac_latm")
+    CONFIGURE_ARGS+=("--enable-parser=aac" "--enable-parser=aac_latm")
   fi
 
   # ---- MP3 ----
   if [ "${ENABLE_MP3:-0}" -eq 1 ]; then
-    args+=("--enable-decoder=mp3" "--enable-decoder=mp3float")
-    args+=("--enable-parser=mpegaudio")
+    CONFIGURE_ARGS+=("--enable-decoder=mp3" "--enable-decoder=mp3float")
+    CONFIGURE_ARGS+=("--enable-parser=mpegaudio")
   fi
 
   # ---- Opus ----
   if [ "${ENABLE_OPUS:-0}" -eq 1 ]; then
-    args+=("--enable-decoder=opus")
-    args+=("--enable-parser=opus")
+    CONFIGURE_ARGS+=("--enable-decoder=opus")
+    CONFIGURE_ARGS+=("--enable-parser=opus")
   fi
 
   # ---- VP8/VP9 ----
   if [ "${ENABLE_VP8_VP9:-0}" -eq 1 ]; then
-    args+=("--enable-decoder=vp8" "--enable-decoder=vp9")
-    args+=("--enable-parser=vp8" "--enable-parser=vp9")
+    CONFIGURE_ARGS+=("--enable-decoder=vp8" "--enable-decoder=vp9")
+    CONFIGURE_ARGS+=("--enable-parser=vp8" "--enable-parser=vp9")
   fi
 
   # ---- 容器格式 ----
   if [ "${ENABLE_FMT_MP4:-0}" -eq 1 ]; then
-    args+=("--enable-demuxer=mov,mp4,m4a,3gp,3g2,mj2")
-    args+=("--enable-protocol=file")
+    CONFIGURE_ARGS+=("--enable-demuxer=mov,mp4,m4a,3gp,3g2,mj2")
+    CONFIGURE_ARGS+=("--enable-protocol=file")
   fi
   if [ "${ENABLE_FMT_MKV:-0}" -eq 1 ]; then
-    args+=("--enable-demuxer=matroska")
+    CONFIGURE_ARGS+=("--enable-demuxer=matroska")
   fi
   if [ "${ENABLE_FMT_FLV:-0}" -eq 1 ]; then
-    args+=("--enable-demuxer=flv" "--enable-demuxer=live_flv")
+    CONFIGURE_ARGS+=("--enable-demuxer=flv" "--enable-demuxer=live_flv")
   fi
   if [ "${ENABLE_FMT_HLS:-0}" -eq 1 ]; then
-    args+=("--enable-demuxer=hls" "--enable-protocol=file")
+    CONFIGURE_ARGS+=("--enable-demuxer=hls" "--enable-protocol=file")
   fi
   if [ "${ENABLE_FMT_MPEGTS:-0}" -eq 1 ]; then
-    args+=("--enable-demuxer=mpegts" "--enable-demuxer=mpegtsraw")
+    CONFIGURE_ARGS+=("--enable-demuxer=mpegts" "--enable-demuxer=mpegtsraw")
   fi
 
   # 保留极小的 null muxer，便于在浏览器中做解码冒烟验证
-  args+=("--enable-muxer=null")
-
-  echo "${args[@]}"
+  CONFIGURE_ARGS+=("--enable-muxer=null")
 }
 
 # =============================================================================
-# 步骤 3：构建 emcc 链接参数（最终生成 .js + .wasm）
+# 步骤 3：构建 emcc 链接参数（填充全局数组 EMCC_LINK_FLAGS，最终生成 .js + .wasm）
 # =============================================================================
+EMCC_LINK_FLAGS=()
 build_emcc_link_flags() {
-  local flags=(
+  EMCC_LINK_FLAGS=(
     "-s MODULARIZE=1"
     "-s EXPORT_NAME=${EXPORT_NAME:-createFFmpegCore}"
     "-s ALLOW_MEMORY_GROWTH=${ALLOW_MEMORY_GROWTH:-1}"
@@ -180,24 +181,22 @@ build_emcc_link_flags() {
   # ENABLE_THREADS controls the pool size: 0 → 1 (minimal), 1 → configured value.
   local _pool_size=1
   [ "${ENABLE_THREADS:-0}" -eq 1 ] && _pool_size="${PTHREAD_POOL_SIZE:-4}"
-  flags+=(
+  EMCC_LINK_FLAGS+=(
     "-s USE_PTHREADS=1"
     "-s PTHREAD_POOL_SIZE=${_pool_size}"
   )
 
   # ---- SIMD 优化 ----
   if [ "${ENABLE_SIMD:-0}" -eq 1 ]; then
-    flags+=("-msimd128")
+    EMCC_LINK_FLAGS+=("-msimd128")
   fi
 
   # ---- 调试模式 ----
   if [ "${ENABLE_DEBUG:-0}" -eq 1 ]; then
-    flags+=("-O0" "-g" "-s ASSERTIONS=2" "--source-map-base ./")
+    EMCC_LINK_FLAGS+=("-O0" "-g" "-s ASSERTIONS=2" "--source-map-base ./")
   else
-    flags+=("-O3")
+    EMCC_LINK_FLAGS+=("-O3")
   fi
-
-  echo "${flags[@]}"
 }
 
 # =============================================================================
@@ -210,11 +209,8 @@ cd "$FFMPEG_SRC"
 
 # ---- 配置 FFmpeg（使用 emconfigure 注入 Emscripten 工具链）-----------------
 log_info "配置 FFmpeg (emconfigure)..."
-# 读取配置参数（使用 eval 展开数组，保留含空格的参数）
-CONFIGURE_ARGS=$(build_configure_args)
-
-# shellcheck disable=SC2086
-emconfigure ./configure $CONFIGURE_ARGS
+build_configure_args
+emconfigure ./configure "${CONFIGURE_ARGS[@]}"
 
 # ---- 编译 FFmpeg（仅编译为 .a 和 .o，不链接）--------------------------------
 log_info "编译 FFmpeg 库文件 (emmake make, jobs=$MAKE_JOBS)..."
@@ -314,10 +310,9 @@ emcc -c "$IOV_DECODER_SRC" \
 
 # ---- 最终 emcc 链接：生成 ffmpeg-core.js + ffmpeg-core.wasm ----------------
 log_info "链接生成 WASM 产物..."
-EMCC_LINK_FLAGS=$(build_emcc_link_flags)
+build_emcc_link_flags
 OUTPUT_JS="$OUTPUT_DIR/${OUTPUT_NAME:-ffmpeg-core}.js"
 
-# shellcheck disable=SC2086
 emcc \
   "${FFTOOLS_OBJS[@]}" \
   "$IOV_DECODER_OBJ" \
@@ -327,7 +322,7 @@ emcc \
   -I"$DEPS_DIR/include" \
   --post-js "$IOV_DECODER_POST_JS" \
   -o "$OUTPUT_JS" \
-  $EMCC_LINK_FLAGS
+  "${EMCC_LINK_FLAGS[@]}"
 
 log_ok "链接完成！输出文件："
 ls -lh "$OUTPUT_DIR/"
