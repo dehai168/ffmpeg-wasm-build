@@ -38,8 +38,9 @@ download_ffmpeg() {
 # 步骤 2：构建 FFmpeg configure 参数
 # =============================================================================
 build_configure_args() {
-  local _thread_cflag=""
-  [ "${ENABLE_THREADS:-0}" -eq 1 ] && _thread_cflag=" -pthread"
+  # FFmpeg 6.1+ fftools/ffmpeg_dec.c uses pthread_t unconditionally, so -pthread
+  # must always be present.  ENABLE_THREADS only controls the thread-pool size.
+  local _thread_cflag=" -pthread"
   local args=(
     "--prefix=$FFMPEG_BUILD_DIR"
     # 目标平台：none 表示裸机/WASM
@@ -147,11 +148,6 @@ build_configure_args() {
   # 保留极小的 null muxer，便于在浏览器中做解码冒烟验证
   args+=("--enable-muxer=null")
 
-  # ---- 线程 ----
-  if [ "${ENABLE_THREADS:-0}" -eq 0 ]; then
-    args+=("--disable-pthreads" "--disable-w32threads" "--disable-os2threads")
-  fi
-
   echo "${args[@]}"
 }
 
@@ -180,12 +176,14 @@ build_emcc_link_flags() {
   )
 
   # ---- 线程支持 ----
-  if [ "${ENABLE_THREADS:-0}" -eq 1 ]; then
-    flags+=(
-      "-s USE_PTHREADS=1"
-      "-s PTHREAD_POOL_SIZE=${PTHREAD_POOL_SIZE:-4}"
-    )
-  fi
+  # FFmpeg 6.1+ fftools require pthreads; USE_PTHREADS is always needed.
+  # ENABLE_THREADS controls the pool size: 0 → 1 (minimal), 1 → configured value.
+  local _pool_size=1
+  [ "${ENABLE_THREADS:-0}" -eq 1 ] && _pool_size="${PTHREAD_POOL_SIZE:-4}"
+  flags+=(
+    "-s USE_PTHREADS=1"
+    "-s PTHREAD_POOL_SIZE=${_pool_size}"
+  )
 
   # ---- SIMD 优化 ----
   if [ "${ENABLE_SIMD:-0}" -eq 1 ]; then
@@ -261,9 +259,8 @@ if [ ! -f "$FFMPEG_SRC/fftools/cmdutils.o" ] || [ ! -f "$FFMPEG_SRC/fftools/opt_
   if [ -f "$FFMPEG_SRC/ffbuild/config.mak" ]; then
     _ffbuild_cflags=$(sed -n 's/^CFLAGS=//p' "$FFMPEG_SRC/ffbuild/config.mak" | head -1)
   fi
-  # 线程编译标志：ENABLE_THREADS=1 时需要 -pthread 使 Emscripten 暴露 pthread.h
-  _thread_flag=""
-  [ "${ENABLE_THREADS:-0}" -eq 1 ] && _thread_flag="-pthread"
+  # FFmpeg 6.1+ fftools require pthreads unconditionally.
+  _thread_flag="-pthread"
   for src in "$FFMPEG_SRC/fftools/"*.c; do
     obj="${src%.c}.o"
     [ -f "$obj" ] && continue
