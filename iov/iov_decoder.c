@@ -48,10 +48,14 @@ typedef struct IovDecoderState {
 } IovDecoderState;
 
 static IovDecoderState g_state;
+static int g_audio_out_channels = 2;
 
 static void reset_output_frames(void) {
-    for (int i = 0; i < g_state.frame_count; i += 1) {
-        for (int p = 0; p < 3; p += 1) {
+    int i;
+    int p;
+
+    for (i = 0; i < g_state.frame_count; i += 1) {
+        for (p = 0; p < 3; p += 1) {
             free(g_state.frames[i].planes[p].data);
             g_state.frames[i].planes[p].data = NULL;
             g_state.frames[i].planes[p].size = 0;
@@ -99,6 +103,8 @@ static enum AVCodecID parse_video_codec(const char *json) {
 }
 
 static int ensure_video_decoder(enum AVCodecID codec_id) {
+    const AVCodec *codec;
+
     if (g_state.video_ctx && g_state.video_codec_id == codec_id) {
         return 0;
     }
@@ -109,7 +115,7 @@ static int ensure_video_decoder(enum AVCodecID codec_id) {
         g_state.sws_ctx = NULL;
     }
 
-    const AVCodec *codec = avcodec_find_decoder(codec_id);
+    codec = avcodec_find_decoder(codec_id);
     if (!codec) {
         return AVERROR_DECODER_NOT_FOUND;
     }
@@ -124,6 +130,8 @@ static int ensure_video_decoder(enum AVCodecID codec_id) {
 }
 
 static int ensure_audio_decoder(enum AVCodecID codec_id) {
+    const AVCodec *codec;
+
     if (g_state.audio_ctx && g_state.audio_codec_id == codec_id) {
         return 0;
     }
@@ -134,7 +142,7 @@ static int ensure_audio_decoder(enum AVCodecID codec_id) {
         g_state.swr_ctx = NULL;
     }
 
-    const AVCodec *codec = avcodec_find_decoder(codec_id);
+    codec = avcodec_find_decoder(codec_id);
     if (!codec) {
         return AVERROR_DECODER_NOT_FOUND;
     }
@@ -161,13 +169,18 @@ static int copy_plane(IovPlaneBuffer *plane, const uint8_t *src, int size) {
 }
 
 static int store_video_frame(AVFrame *src, double timestamp_ms) {
+    AVFrame *yuv;
+    AVFrame *converted;
+    IovDecodedFrame *out;
+    int ret;
+
     if (g_state.frame_count >= IOV_MAX_FRAMES) {
         return 0;
     }
 
-    AVFrame *yuv = src;
-    AVFrame *converted = NULL;
-    int ret = 0;
+    yuv = src;
+    converted = NULL;
+    ret = 0;
 
     if (src->format != AV_PIX_FMT_YUV420P) {
         converted = av_frame_alloc();
@@ -211,7 +224,7 @@ static int store_video_frame(AVFrame *src, double timestamp_ms) {
         yuv = converted;
     }
 
-    IovDecodedFrame *out = &g_state.frames[g_state.frame_count++];
+    out = &g_state.frames[g_state.frame_count++];
     memset(out, 0, sizeof(*out));
     out->is_video = 1;
     out->timestamp_ms = timestamp_ms;
@@ -234,22 +247,33 @@ static int store_video_frame(AVFrame *src, double timestamp_ms) {
     return ret;
 }
 
-static int g_audio_out_channels = 2;
-
 static int store_audio_frame(AVFrame *src, double timestamp_ms) {
+    AVChannelLayout out_layout;
+    IovDecodedFrame *out;
+    uint8_t *out_data[1];
+    int ret;
+    int out_samples;
+    int bytes;
+    int converted;
+
     if (g_state.frame_count >= IOV_MAX_FRAMES) {
         return 0;
     }
 
     if (!g_state.swr_ctx) {
-        AVChannelLayout out_layout = AV_CHANNEL_LAYOUT_STEREO;
-        g_audio_out_channels = 2;
+        memset(&out_layout, 0, sizeof(out_layout));
         if (src->ch_layout.nb_channels == 1) {
-            out_layout = AV_CHANNEL_LAYOUT_MONO;
+            ret = av_channel_layout_default(&out_layout, 1);
             g_audio_out_channels = 1;
+        } else {
+            ret = av_channel_layout_default(&out_layout, 2);
+            g_audio_out_channels = 2;
+        }
+        if (ret < 0) {
+            return ret;
         }
 
-        int ret = swr_alloc_set_opts2(
+        ret = swr_alloc_set_opts2(
             &g_state.swr_ctx,
             &out_layout,
             AV_SAMPLE_FMT_FLT,
@@ -259,6 +283,7 @@ static int store_audio_frame(AVFrame *src, double timestamp_ms) {
             src->sample_rate,
             0,
             NULL);
+        av_channel_layout_uninit(&out_layout);
         if (ret < 0) {
             return ret;
         }
@@ -268,23 +293,23 @@ static int store_audio_frame(AVFrame *src, double timestamp_ms) {
         }
     }
 
-    int out_samples = swr_get_out_samples(g_state.swr_ctx, src->nb_samples);
+    out_samples = swr_get_out_samples(g_state.swr_ctx, src->nb_samples);
     if (out_samples < 0) {
         return out_samples;
     }
 
-    int bytes = out_samples * g_audio_out_channels * (int)sizeof(float);
+    bytes = out_samples * g_audio_out_channels * (int)sizeof(float);
     if (bytes > g_state.audio_buffer_size) {
         return AVERROR(ENOMEM);
     }
 
-    uint8_t *out_data[1] = { g_state.audio_buffer };
-    int converted = swr_convert(g_state.swr_ctx, out_data, out_samples, (const uint8_t **)src->data, src->nb_samples);
+    out_data[0] = g_state.audio_buffer;
+    converted = swr_convert(g_state.swr_ctx, out_data, out_samples, (const uint8_t **)src->data, src->nb_samples);
     if (converted < 0) {
         return converted;
     }
 
-    IovDecodedFrame *out = &g_state.frames[g_state.frame_count++];
+    out = &g_state.frames[g_state.frame_count++];
     memset(out, 0, sizeof(*out));
     out->is_video = 0;
     out->timestamp_ms = timestamp_ms;
@@ -302,7 +327,9 @@ static int store_audio_frame(AVFrame *src, double timestamp_ms) {
 }
 
 static int drain_decoder(AVCodecContext *ctx, int is_video, double timestamp_ms) {
-    int ret = 0;
+    int ret;
+
+    ret = 0;
     while (ret >= 0) {
         ret = avcodec_receive_frame(ctx, g_state.frame);
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
@@ -325,6 +352,8 @@ static int drain_decoder(AVCodecContext *ctx, int is_video, double timestamp_ms)
 }
 
 static int send_video_packet(const uint8_t *data, int size, double timestamp_ms, int keyframe) {
+    int ret;
+
     if (!g_state.video_ctx) {
         return 0;
     }
@@ -341,7 +370,7 @@ static int send_video_packet(const uint8_t *data, int size, double timestamp_ms,
         g_state.packet->flags |= AV_PKT_FLAG_KEY;
     }
 
-    int ret = avcodec_send_packet(g_state.video_ctx, g_state.packet);
+    ret = avcodec_send_packet(g_state.video_ctx, g_state.packet);
     if (ret < 0) {
         return ret;
     }
@@ -349,6 +378,8 @@ static int send_video_packet(const uint8_t *data, int size, double timestamp_ms,
 }
 
 static int send_audio_packet(const uint8_t *data, int size, double timestamp_ms) {
+    int ret;
+
     if (!g_state.audio_ctx) {
         return 0;
     }
@@ -362,7 +393,7 @@ static int send_audio_packet(const uint8_t *data, int size, double timestamp_ms)
     g_state.packet->pts = (int64_t)timestamp_ms;
     g_state.packet->dts = (int64_t)timestamp_ms;
 
-    int ret = avcodec_send_packet(g_state.audio_ctx, g_state.packet);
+    ret = avcodec_send_packet(g_state.audio_ctx, g_state.packet);
     if (ret < 0) {
         return ret;
     }
@@ -370,26 +401,35 @@ static int send_audio_packet(const uint8_t *data, int size, double timestamp_ms)
 }
 
 static int decode_h264_hevc_video(const uint8_t *payload, int len, const char *context_json) {
+    enum AVCodecID codec_id;
+    int ret;
+    int packet_type;
+    double timestamp_ms;
+    int keyframe;
+    const uint8_t *extradata;
+    int extradata_size;
+    int open_ret;
+
     if (len < 2) {
         return 0;
     }
 
-    enum AVCodecID codec_id = parse_video_codec(context_json);
-    int ret = ensure_video_decoder(codec_id);
+    codec_id = parse_video_codec(context_json);
+    ret = ensure_video_decoder(codec_id);
     if (ret < 0) {
         return ret;
     }
 
-    int packet_type = payload[1];
-    double timestamp_ms = context_timestamp_ms(context_json);
-    int keyframe = context_is_keyframe(context_json);
+    packet_type = payload[1];
+    timestamp_ms = context_timestamp_ms(context_json);
+    keyframe = context_is_keyframe(context_json);
 
     if (packet_type == 0) {
         if (len <= 5) {
             return 0;
         }
-        const uint8_t *extradata = payload + 5;
-        int extradata_size = len - 5;
+        extradata = payload + 5;
+        extradata_size = len - 5;
         if (g_state.video_ctx && avcodec_is_open(g_state.video_ctx)) {
             avcodec_close(g_state.video_ctx);
         }
@@ -408,7 +448,7 @@ static int decode_h264_hevc_video(const uint8_t *payload, int len, const char *c
     }
 
     if (!avcodec_is_open(g_state.video_ctx)) {
-        int open_ret = avcodec_open2(g_state.video_ctx, g_state.video_ctx->codec, NULL);
+        open_ret = avcodec_open2(g_state.video_ctx, g_state.video_ctx->codec, NULL);
         if (open_ret < 0) {
             return open_ret;
         }
@@ -418,10 +458,12 @@ static int decode_h264_hevc_video(const uint8_t *payload, int len, const char *c
 }
 
 static enum AVCodecID parse_audio_codec(const uint8_t *payload, int len) {
+    int sound_format;
+
     if (len < 1) {
         return AV_CODEC_ID_NONE;
     }
-    int sound_format = payload[0] >> 4;
+    sound_format = payload[0] >> 4;
     if (sound_format == 10) {
         return AV_CODEC_ID_AAC;
     }
@@ -435,31 +477,40 @@ static enum AVCodecID parse_audio_codec(const uint8_t *payload, int len) {
 }
 
 static int decode_flv_audio(const uint8_t *payload, int len, const char *context_json) {
+    enum AVCodecID codec_id;
+    int ret;
+    double timestamp_ms;
+    int sound_format;
+    int aac_packet_type;
+    const uint8_t *asc;
+    int asc_size;
+    int open_ret;
+
     if (len < 2) {
         return 0;
     }
 
-    enum AVCodecID codec_id = parse_audio_codec(payload, len);
+    codec_id = parse_audio_codec(payload, len);
     if (codec_id == AV_CODEC_ID_NONE) {
         return 0;
     }
 
-    int ret = ensure_audio_decoder(codec_id);
+    ret = ensure_audio_decoder(codec_id);
     if (ret < 0) {
         return ret;
     }
 
-    double timestamp_ms = context_timestamp_ms(context_json);
-    int sound_format = payload[0] >> 4;
+    timestamp_ms = context_timestamp_ms(context_json);
+    sound_format = payload[0] >> 4;
 
     if (sound_format == 10) {
-        int aac_packet_type = payload[1];
+        aac_packet_type = payload[1];
         if (aac_packet_type == 0) {
             if (len <= 2) {
                 return 0;
             }
-            const uint8_t *asc = payload + 2;
-            int asc_size = len - 2;
+            asc = payload + 2;
+            asc_size = len - 2;
             free_codec_context(&g_state.audio_ctx);
             ret = ensure_audio_decoder(codec_id);
             if (ret < 0) {
@@ -478,7 +529,7 @@ static int decode_flv_audio(const uint8_t *payload, int len, const char *context
             return 0;
         }
         if (!avcodec_is_open(g_state.audio_ctx)) {
-            int open_ret = avcodec_open2(g_state.audio_ctx, g_state.audio_ctx->codec, NULL);
+            open_ret = avcodec_open2(g_state.audio_ctx, g_state.audio_ctx->codec, NULL);
             if (open_ret < 0) {
                 return open_ret;
             }
@@ -490,7 +541,7 @@ static int decode_flv_audio(const uint8_t *payload, int len, const char *context
         return 0;
     }
     if (!avcodec_is_open(g_state.audio_ctx)) {
-        int open_ret = avcodec_open2(g_state.audio_ctx, g_state.audio_ctx->codec, NULL);
+        open_ret = avcodec_open2(g_state.audio_ctx, g_state.audio_ctx->codec, NULL);
         if (open_ret < 0) {
             return open_ret;
         }
@@ -562,6 +613,7 @@ void iov_decoder_close(void) {
     g_state.audio_buffer_size = 0;
     g_state.video_codec_id = AV_CODEC_ID_NONE;
     g_state.audio_codec_id = AV_CODEC_ID_NONE;
+    g_audio_out_channels = 2;
 }
 
 int iov_decoder_frame_count(void) {
