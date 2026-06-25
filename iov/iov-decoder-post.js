@@ -1,4 +1,32 @@
 (function () {
+  function stringToNewUTF8(module, text) {
+    if (typeof module.stringToNewUTF8 === 'function') {
+      return module.stringToNewUTF8(text);
+    }
+
+    const bytes = new TextEncoder().encode(`${text}\0`);
+    const pointer = module._malloc(bytes.byteLength);
+    module.HEAPU8.set(bytes, pointer);
+    return pointer;
+  }
+
+  function utf8ToString(module, pointer) {
+    if (!pointer) {
+      return '';
+    }
+
+    if (typeof module.UTF8ToString === 'function') {
+      return module.UTF8ToString(pointer);
+    }
+
+    let end = pointer;
+    while (module.HEAPU8[end] !== 0) {
+      end += 1;
+    }
+
+    return new TextDecoder().decode(module.HEAPU8.subarray(pointer, end));
+  }
+
   function copyHeapBytes(module, pointer, size) {
     if (!pointer || size <= 0) {
       return new Uint8Array();
@@ -46,7 +74,7 @@
         const width = module._iov_decoder_frame_width(index);
         const height = module._iov_decoder_frame_height(index);
         const formatPtr = module._iov_decoder_frame_format(index);
-        const format = formatPtr ? module.UTF8ToString(formatPtr) : 'i420';
+        const format = formatPtr ? utf8ToString(module, formatPtr) : 'i420';
         const yPtr = module._iov_decoder_frame_plane(index, 0);
         const uPtr = module._iov_decoder_frame_plane(index, 1);
         const vPtr = module._iov_decoder_frame_plane(index, 2);
@@ -82,10 +110,13 @@
     return frames;
   }
 
+  if (!Module._iov_decoder_decode) {
+    return;
+  }
+
   Module.iovDecoder = {
     configure(config) {
-      const json = JSON.stringify(config || {});
-      const jsonPtr = Module.stringToNewUTF8(json);
+      const jsonPtr = stringToNewUTF8(Module, JSON.stringify(config || {}));
       try {
         Module._iov_decoder_configure(jsonPtr);
       } finally {
@@ -95,8 +126,7 @@
     decode(payload, context) {
       const inputPtr = Module._malloc(payload.byteLength);
       Module.HEAPU8.set(payload, inputPtr);
-      const contextJson = JSON.stringify(context || {});
-      const contextPtr = Module.stringToNewUTF8(contextJson);
+      const contextPtr = stringToNewUTF8(Module, JSON.stringify(context || {}));
 
       try {
         const result = Module._iov_decoder_decode(inputPtr, payload.byteLength, contextPtr);

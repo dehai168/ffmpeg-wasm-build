@@ -1,5 +1,6 @@
 #include "iov_decoder.h"
 
+#include <emscripten.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/imgutils.h>
@@ -546,11 +547,13 @@ static int decode_flv_audio(const uint8_t *payload, int len, const char *context
     return send_audio_packet(payload + 1, len - 1, timestamp_ms);
 }
 
+EMSCRIPTEN_KEEPALIVE
 void iov_decoder_configure(const char *config_json) {
     (void)config_json;
     iov_decoder_close();
 }
 
+EMSCRIPTEN_KEEPALIVE
 int iov_decoder_decode(const uint8_t *data, int size, const char *context_json) {
     if (!data || size <= 0) {
         return 0;
@@ -576,6 +579,7 @@ int iov_decoder_decode(const uint8_t *data, int size, const char *context_json) 
     return 0;
 }
 
+EMSCRIPTEN_KEEPALIVE
 void iov_decoder_flush(void) {
     if (g_state.video_ctx && avcodec_is_open(g_state.video_ctx)) {
         avcodec_send_packet(g_state.video_ctx, NULL);
@@ -587,6 +591,7 @@ void iov_decoder_flush(void) {
     }
 }
 
+EMSCRIPTEN_KEEPALIVE
 void iov_decoder_close(void) {
     reset_output_frames();
     free_codec_context(&g_state.video_ctx);
@@ -613,6 +618,7 @@ void iov_decoder_close(void) {
     g_audio_out_channels = 2;
 }
 
+EMSCRIPTEN_KEEPALIVE
 int iov_decoder_frame_count(void) {
     return g_state.frame_count;
 }
