@@ -96,11 +96,14 @@ MAXIMUM_MEMORY=$((2 * 1024 * 1024 * 1024))  # 2 GB
 ALLOW_MEMORY_GROWTH=1
 
 # -----------------------------------------------------------------------------
-# 多线程支持（实验性）
-# 需要浏览器开启 SharedArrayBuffer，且服务端需设置以下响应头：
+# 多线程支持
+# FFmpeg 6.1+ 的 fftools 无条件使用 pthreads，因此最终产物始终需要浏览器支持
+# SharedArrayBuffer，且服务端需设置以下响应头：
 #   Cross-Origin-Opener-Policy: same-origin
 #   Cross-Origin-Embedder-Policy: require-corp
-# 若部署环境不满足，请保持 0（单线程模式）
+#
+# ENABLE_THREADS=0：使用 pthread 线程池大小 1（最小开销，无并行解码优化）
+# ENABLE_THREADS=1：使用下方 PTHREAD_POOL_SIZE 配置的线程数（并行解码更快）
 # -----------------------------------------------------------------------------
 
 ENABLE_THREADS=0
