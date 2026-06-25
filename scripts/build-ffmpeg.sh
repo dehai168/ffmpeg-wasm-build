@@ -328,3 +328,8 @@ emcc \
 
 log_ok "链接完成！输出文件："
 ls -lh "$OUTPUT_DIR/"
+
+if ! bash "$SCRIPT_DIR/scripts/verify-ffmpeg-core.sh" "$OUTPUT_JS"; then
+  log_error "ffmpeg-core.js 未通过 iov-h5player 导出校验，请检查 iov/wasm-exports.json 与链接日志"
+  exit 1
+fi

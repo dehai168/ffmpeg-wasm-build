@@ -14,6 +14,16 @@
 #define IOV_MAX_FRAMES 8
 #define IOV_AUDIO_BUFFER_SIZE (1024 * 1024)
 
+EMSCRIPTEN_KEEPALIVE
+void *iov_wasm_malloc(int size) {
+    return malloc((size_t)size);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void iov_wasm_free(void *ptr) {
+    free(ptr);
+}
+
 typedef struct IovPlaneBuffer {
     uint8_t *data;
     int size;

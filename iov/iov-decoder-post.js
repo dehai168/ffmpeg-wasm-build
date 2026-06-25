@@ -1,5 +1,15 @@
 (function () {
+  function bindHeapExports(module) {
+    if (typeof module._malloc !== 'function' && typeof module._iov_wasm_malloc === 'function') {
+      module._malloc = module._iov_wasm_malloc;
+    }
+    if (typeof module._free !== 'function' && typeof module._iov_wasm_free === 'function') {
+      module._free = module._iov_wasm_free;
+    }
+  }
+
   function ensureWasmAllocators(module) {
+    bindHeapExports(module);
     if (typeof module._malloc === 'function' && typeof module._free === 'function') {
       return;
     }
@@ -142,6 +152,8 @@
   if (!Module._iov_decoder_decode) {
     return;
   }
+
+  bindHeapExports(Module);
 
   Module.iovDecoder = {
     configure(config) {

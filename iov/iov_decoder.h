@@ -26,6 +26,9 @@ int iov_decoder_frame_audio_samples(int index);
 uint8_t *iov_decoder_frame_audio_data(int index);
 int iov_decoder_frame_audio_bytes(int index);
 
+void *iov_wasm_malloc(int size);
+void iov_wasm_free(void *ptr);
+
 #ifdef __cplusplus
 }
 #endif

@@ -90,7 +90,7 @@ cp output/ffmpeg-core.js output/ffmpeg-core.wasm ../iov-h5player/public/assets/f
 bash scripts/verify-ffmpeg-core.sh output/ffmpeg-core.js
 ```
 
-`verify-ffmpeg-core.sh` 会检查产物里是否包含 `createFFmpegCore` 和 `_iov_decoder_decode` 等符号。缺少这些符号时，播放器无法使用 WASM 软解码。
+`verify-ffmpeg-core.sh` 会检查产物里是否包含 `_iov_decoder_decode`、`_iov_wasm_malloc`（或 `_malloc`）等 WASM 导出。`build.sh` 链接结束后也会自动运行该校验。
 
 解码输出优先为 **I420 YUV 平面帧**，由播放器 WebGL 渲染，适合移动端浏览器和微信小程序 WebView 等无 MSE 场景。页面需配置 COOP/COEP 以启用 pthreads + SharedArrayBuffer。
 

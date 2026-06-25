@@ -11,13 +11,13 @@ fi
 
 missing=0
 
-if ! grep -q 'Module\["_malloc"\]' "$CORE_JS"; then
-  echo "missing wasm export stub for _malloc"
+if ! grep -q 'Module\["_malloc"\]' "$CORE_JS" && ! grep -q 'Module\["_iov_wasm_malloc"\]' "$CORE_JS"; then
+  echo "missing wasm export stub for heap allocator (_malloc or _iov_wasm_malloc)"
   missing=1
 fi
 
-if ! grep -q 'Module\["_free"\]' "$CORE_JS"; then
-  echo "missing wasm export stub for _free"
+if ! grep -q 'Module\["_free"\]' "$CORE_JS" && ! grep -q 'Module\["_iov_wasm_free"\]' "$CORE_JS"; then
+  echo "missing wasm export stub for heap free (_free or _iov_wasm_free)"
   missing=1
 fi
 
