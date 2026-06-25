@@ -250,10 +250,28 @@ for obj in "$FFMPEG_SRC/fftools/ffmpeg.o" "$FFMPEG_SRC"/fftools/ffmpeg_*.o \
   [ -f "$obj" ] && FFTOOLS_OBJS+=("$obj")
 done
 
-# 某些配置下默认 make 不会生成完整的 fftools 依赖，补编译一次 ffmpeg 目标
+# 某些配置下（如 --target-os=none）make 不会生成 fftools 目标文件，
+# 因为此时 Makefile 中不存在 "ffmpeg" 可执行目标。直接用 emcc 编译各 .c 源文件。
 if [ ! -f "$FFMPEG_SRC/fftools/cmdutils.o" ] || [ ! -f "$FFMPEG_SRC/fftools/opt_common.o" ]; then
-  log_warn "fftools 目标文件不完整，尝试补编译 ffmpeg 目标..."
-  emmake make -j"$MAKE_JOBS" ffmpeg || true
+  log_warn "fftools 目标文件不完整，直接编译 fftools 源文件..."
+  # 读取 configure 生成的 CFLAGS（含 -std=、-D 宏等），缺失时静默忽略
+  _ffbuild_cflags=""
+  if [ -f "$FFMPEG_SRC/ffbuild/config.mak" ]; then
+    _ffbuild_cflags=$(sed -n 's/^CFLAGS=//p' "$FFMPEG_SRC/ffbuild/config.mak" | head -1)
+  fi
+  for src in "$FFMPEG_SRC/fftools/"*.c; do
+    obj="${src%.c}.o"
+    [ -f "$obj" ] && continue
+    log_info "编译 fftools/$(basename "$src")..."
+    # shellcheck disable=SC2086
+    emcc -c "$src" \
+      -I"$FFMPEG_SRC" \
+      -I"$FFMPEG_SRC/fftools" \
+      -I"$FFMPEG_BUILD_DIR/include" \
+      -I"$DEPS_DIR/include" \
+      $_ffbuild_cflags \
+      -o "$obj"
+  done
   FFTOOLS_OBJS=()
   for obj in "$FFMPEG_SRC/fftools/ffmpeg.o" "$FFMPEG_SRC"/fftools/ffmpeg_*.o \
              "$FFMPEG_SRC/fftools/cmdutils.o" "$FFMPEG_SRC/fftools/opt_common.o" \
