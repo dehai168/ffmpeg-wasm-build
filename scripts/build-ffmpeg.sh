@@ -162,8 +162,10 @@ build_emcc_link_flags() {
     "-s ALLOW_MEMORY_GROWTH=${ALLOW_MEMORY_GROWTH:-1}"
     "-s INITIAL_MEMORY=${INITIAL_MEMORY:-67108864}"
     "-s MAXIMUM_MEMORY=${MAXIMUM_MEMORY:-2147483648}"
-    # 导出供 JS 调用的函数
-    "-s EXPORTED_FUNCTIONS=[\"_main\",\"_iov_decoder_configure\",\"_iov_decoder_decode\",\"_iov_decoder_flush\",\"_iov_decoder_close\",\"_iov_decoder_frame_count\",\"_iov_decoder_frame_is_video\",\"_iov_decoder_frame_timestamp\",\"_iov_decoder_frame_width\",\"_iov_decoder_frame_height\",\"_iov_decoder_frame_format\",\"_iov_decoder_frame_plane\",\"_iov_decoder_frame_plane_size\",\"_iov_decoder_frame_sample_rate\",\"_iov_decoder_frame_channels\",\"_iov_decoder_frame_audio_samples\",\"_iov_decoder_frame_audio_data\",\"_iov_decoder_frame_audio_bytes\",\"_malloc\",\"_free\"]"
+    # 导出供 JS 调用的函数（使用 response file，避免命令行过长被截断）
+    "-s EXPORTED_FUNCTIONS=@$SCRIPT_DIR/iov/wasm-exports.json"
+    # 确保 libc malloc/free 被链接并可供 EXPORTED_FUNCTIONS 导出
+    "-s DEFAULT_LIBRARY_FUNCS_TO_INCLUDE=[\"\$malloc\",\"\$free\"]"
     # 导出运行时方法：FS（虚拟文件系统）、callMain（调用 main）
     "-s EXPORTED_RUNTIME_METHODS=[\"FS\",\"callMain\",\"ccall\",\"cwrap\",\"HEAPU8\",\"UTF8ToString\",\"stringToNewUTF8\"]"
     # 目标环境：web + worker（兼容主线程和 Web Worker）

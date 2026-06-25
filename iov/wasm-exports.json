@@ -1,0 +1,22 @@
+[
+  "_main",
+  "_malloc",
+  "_free",
+  "_iov_decoder_configure",
+  "_iov_decoder_decode",
+  "_iov_decoder_flush",
+  "_iov_decoder_close",
+  "_iov_decoder_frame_count",
+  "_iov_decoder_frame_is_video",
+  "_iov_decoder_frame_timestamp",
+  "_iov_decoder_frame_width",
+  "_iov_decoder_frame_height",
+  "_iov_decoder_frame_format",
+  "_iov_decoder_frame_plane",
+  "_iov_decoder_frame_plane_size",
+  "_iov_decoder_frame_sample_rate",
+  "_iov_decoder_frame_channels",
+  "_iov_decoder_frame_audio_samples",
+  "_iov_decoder_frame_audio_data",
+  "_iov_decoder_frame_audio_bytes"
+]

@@ -1,5 +1,34 @@
 (function () {
+  function ensureWasmAllocators(module) {
+    if (typeof module._malloc === 'function' && typeof module._free === 'function') {
+      return;
+    }
+
+    if (typeof module._malloc !== 'function' && typeof module.__iovBumpPtr !== 'number') {
+      module.__iovBumpPtr = 65536;
+    }
+
+    if (typeof module._malloc !== 'function') {
+      module._malloc = function alloc(size) {
+        const aligned = (size + 15) & ~15;
+        const pointer = module.__iovBumpPtr;
+        module.__iovBumpPtr = pointer + aligned;
+        if (module.HEAPU8 && module.HEAPU8.length < module.__iovBumpPtr && module.wasmMemory) {
+          const delta = module.__iovBumpPtr - module.HEAPU8.length;
+          module.wasmMemory.grow(Math.ceil(delta / 65536));
+          module.HEAPU8 = new Uint8Array(module.wasmMemory.buffer);
+        }
+        return pointer;
+      };
+    }
+
+    if (typeof module._free !== 'function') {
+      module._free = function noopFree() {};
+    }
+  }
+
   function stringToNewUTF8(module, text) {
+    ensureWasmAllocators(module);
     if (typeof module.stringToNewUTF8 === 'function') {
       return module.stringToNewUTF8(text);
     }

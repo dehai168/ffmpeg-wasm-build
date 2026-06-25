@@ -10,12 +10,21 @@ if [ ! -f "$CORE_JS" ]; then
 fi
 
 missing=0
-for symbol in _malloc _free; do
-  if ! grep -q "$symbol" "$CORE_JS"; then
-    echo "missing symbol in ffmpeg-core.js: $symbol"
-    missing=1
-  fi
-done
+
+if ! grep -q 'Module\["_malloc"\]' "$CORE_JS"; then
+  echo "missing wasm export stub for _malloc"
+  missing=1
+fi
+
+if ! grep -q 'Module\["_free"\]' "$CORE_JS"; then
+  echo "missing wasm export stub for _free"
+  missing=1
+fi
+
+if ! grep -q 'Module\["_iov_decoder_frame_is_video"\]' "$CORE_JS"; then
+  echo "missing wasm export stub for _iov_decoder_frame_is_video"
+  missing=1
+fi
 
 # Require a real wasm export stub, not only post-js references like Module._iov_decoder_decode(...)
 if ! grep -Eq 'Module\["_iov_decoder_decode"\]|var _iov_decoder_decode=Module' "$CORE_JS"; then

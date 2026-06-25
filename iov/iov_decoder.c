@@ -623,6 +623,7 @@ int iov_decoder_frame_count(void) {
     return g_state.frame_count;
 }
 
+EMSCRIPTEN_KEEPALIVE
 int iov_decoder_frame_is_video(int index) {
     if (index < 0 || index >= g_state.frame_count) {
         return 0;
@@ -630,6 +631,7 @@ int iov_decoder_frame_is_video(int index) {
     return g_state.frames[index].is_video;
 }
 
+EMSCRIPTEN_KEEPALIVE
 double iov_decoder_frame_timestamp(int index) {
     if (index < 0 || index >= g_state.frame_count) {
         return 0;
@@ -637,6 +639,7 @@ double iov_decoder_frame_timestamp(int index) {
     return g_state.frames[index].timestamp_ms;
 }
 
+EMSCRIPTEN_KEEPALIVE
 int iov_decoder_frame_width(int index) {
     if (index < 0 || index >= g_state.frame_count) {
         return 0;
@@ -644,6 +647,7 @@ int iov_decoder_frame_width(int index) {
     return g_state.frames[index].width;
 }
 
+EMSCRIPTEN_KEEPALIVE
 int iov_decoder_frame_height(int index) {
     if (index < 0 || index >= g_state.frame_count) {
         return 0;
@@ -651,6 +655,7 @@ int iov_decoder_frame_height(int index) {
     return g_state.frames[index].height;
 }
 
+EMSCRIPTEN_KEEPALIVE
 const char *iov_decoder_frame_format(int index) {
     if (index < 0 || index >= g_state.frame_count) {
         return "i420";
@@ -658,6 +663,7 @@ const char *iov_decoder_frame_format(int index) {
     return g_state.frames[index].format;
 }
 
+EMSCRIPTEN_KEEPALIVE
 uint8_t *iov_decoder_frame_plane(int index, int plane) {
     if (index < 0 || index >= g_state.frame_count || plane < 0 || plane > 2) {
         return NULL;
@@ -665,6 +671,7 @@ uint8_t *iov_decoder_frame_plane(int index, int plane) {
     return g_state.frames[index].planes[plane].data;
 }
 
+EMSCRIPTEN_KEEPALIVE
 int iov_decoder_frame_plane_size(int index, int plane) {
     if (index < 0 || index >= g_state.frame_count || plane < 0 || plane > 2) {
         return 0;
@@ -672,6 +679,7 @@ int iov_decoder_frame_plane_size(int index, int plane) {
     return g_state.frames[index].planes[plane].size;
 }
 
+EMSCRIPTEN_KEEPALIVE
 int iov_decoder_frame_sample_rate(int index) {
     if (index < 0 || index >= g_state.frame_count) {
         return 0;
@@ -679,6 +687,7 @@ int iov_decoder_frame_sample_rate(int index) {
     return g_state.frames[index].sample_rate;
 }
 
+EMSCRIPTEN_KEEPALIVE
 int iov_decoder_frame_channels(int index) {
     if (index < 0 || index >= g_state.frame_count) {
         return 0;
@@ -686,6 +695,7 @@ int iov_decoder_frame_channels(int index) {
     return g_state.frames[index].channels;
 }
 
+EMSCRIPTEN_KEEPALIVE
 int iov_decoder_frame_audio_samples(int index) {
     if (index < 0 || index >= g_state.frame_count) {
         return 0;
@@ -693,6 +703,7 @@ int iov_decoder_frame_audio_samples(int index) {
     return g_state.frames[index].audio_samples;
 }
 
+EMSCRIPTEN_KEEPALIVE
 uint8_t *iov_decoder_frame_audio_data(int index) {
     if (index < 0 || index >= g_state.frame_count) {
         return NULL;
@@ -700,6 +711,7 @@ uint8_t *iov_decoder_frame_audio_data(int index) {
     return g_state.frames[index].audio_data;
 }
 
+EMSCRIPTEN_KEEPALIVE
 int iov_decoder_frame_audio_bytes(int index) {
     if (index < 0 || index >= g_state.frame_count) {
         return 0;
