@@ -81,6 +81,18 @@ vi build.config.sh
 
 ---
 
+## 与 iov-h5player 集成
+
+本仓库会额外编译 `iov/iov_decoder.c`，并在 `ffmpeg-core.js` 上挂载 `Module.iovDecoder`，供 `iov-h5player` 的 `ffmpeg-decoder.worker.js` 做 **FLV tag 级软解码**（H.264/H.265 + AAC/MP3/Opus）。
+
+```bash
+cp output/ffmpeg-core.js output/ffmpeg-core.wasm ../iov-h5player/public/assets/ffmpeg/
+```
+
+解码输出优先为 **I420 YUV 平面帧**，由播放器 WebGL 渲染，适合移动端浏览器和微信小程序 WebView 等无 MSE 场景。页面需配置 COOP/COEP 以启用 pthreads + SharedArrayBuffer。
+
+---
+
 ## 编译配置
 
 所有可调参数均位于 **`build.config.sh`**，每个参数都有详细注释。

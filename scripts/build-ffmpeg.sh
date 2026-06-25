@@ -162,9 +162,9 @@ build_emcc_link_flags() {
     "-s INITIAL_MEMORY=${INITIAL_MEMORY:-67108864}"
     "-s MAXIMUM_MEMORY=${MAXIMUM_MEMORY:-2147483648}"
     # 导出供 JS 调用的函数
-    "-s EXPORTED_FUNCTIONS=[\"_main\"]"
+    "-s EXPORTED_FUNCTIONS=[\"_main\",\"_iov_decoder_configure\",\"_iov_decoder_decode\",\"_iov_decoder_flush\",\"_iov_decoder_close\",\"_iov_decoder_frame_count\",\"_iov_decoder_frame_is_video\",\"_iov_decoder_frame_timestamp\",\"_iov_decoder_frame_width\",\"_iov_decoder_frame_height\",\"_iov_decoder_frame_format\",\"_iov_decoder_frame_plane\",\"_iov_decoder_frame_plane_size\",\"_iov_decoder_frame_sample_rate\",\"_iov_decoder_frame_channels\",\"_iov_decoder_frame_audio_samples\",\"_iov_decoder_frame_audio_data\",\"_iov_decoder_frame_audio_bytes\",\"_malloc\",\"_free\"]"
     # 导出运行时方法：FS（虚拟文件系统）、callMain（调用 main）
-    "-s EXPORTED_RUNTIME_METHODS=[\"FS\",\"callMain\",\"ccall\",\"cwrap\"]"
+    "-s EXPORTED_RUNTIME_METHODS=[\"FS\",\"callMain\",\"ccall\",\"cwrap\",\"HEAPU8\",\"UTF8ToString\",\"stringToNewUTF8\"]"
     # 目标环境：web + worker（兼容主线程和 Web Worker）
     "-s ENVIRONMENT=web,worker"
     # 允许使用 SDL 等 Emscripten 内置 API（此处关闭减少体积）
@@ -289,6 +289,29 @@ if [ ${#FFTOOLS_OBJS[@]} -eq 0 ]; then
   exit 1
 fi
 
+IOV_DECODER_SRC="$SCRIPT_DIR/iov/iov_decoder.c"
+IOV_DECODER_OBJ="$SCRIPT_DIR/iov/iov_decoder.o"
+IOV_DECODER_POST_JS="$SCRIPT_DIR/iov/iov-decoder-post.js"
+
+if [ ! -f "$IOV_DECODER_SRC" ]; then
+  log_error "未找到 iov decoder 源文件: $IOV_DECODER_SRC"
+  exit 1
+fi
+
+log_info "编译 iov decoder..."
+_thread_flag="-pthread"
+_ffbuild_cflags=""
+if [ -f "$FFMPEG_SRC/ffbuild/config.mak" ]; then
+  _ffbuild_cflags=$(sed -n 's/^CFLAGS=//p' "$FFMPEG_SRC/ffbuild/config.mak" | head -1)
+fi
+# shellcheck disable=SC2086
+emcc -c "$IOV_DECODER_SRC" \
+  -I"$FFMPEG_BUILD_DIR/include" \
+  -I"$DEPS_DIR/include" \
+  $_thread_flag \
+  $_ffbuild_cflags \
+  -o "$IOV_DECODER_OBJ"
+
 # ---- 最终 emcc 链接：生成 ffmpeg-core.js + ffmpeg-core.wasm ----------------
 log_info "链接生成 WASM 产物..."
 EMCC_LINK_FLAGS=$(build_emcc_link_flags)
@@ -297,10 +320,12 @@ OUTPUT_JS="$OUTPUT_DIR/${OUTPUT_NAME:-ffmpeg-core}.js"
 # shellcheck disable=SC2086
 emcc \
   "${FFTOOLS_OBJS[@]}" \
+  "$IOV_DECODER_OBJ" \
   "${FFMPEG_LIBS[@]}" \
   "${EXTRA_LIBS[@]}" \
   -I"$FFMPEG_BUILD_DIR/include" \
   -I"$DEPS_DIR/include" \
+  --post-js "$IOV_DECODER_POST_JS" \
   -o "$OUTPUT_JS" \
   $EMCC_LINK_FLAGS
 
