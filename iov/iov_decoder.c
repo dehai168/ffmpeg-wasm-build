@@ -263,14 +263,11 @@ static int store_audio_frame(AVFrame *src, double timestamp_ms) {
     if (!g_state.swr_ctx) {
         memset(&out_layout, 0, sizeof(out_layout));
         if (src->ch_layout.nb_channels == 1) {
-            ret = av_channel_layout_default(&out_layout, 1);
+            av_channel_layout_default(&out_layout, 1);
             g_audio_out_channels = 1;
         } else {
-            ret = av_channel_layout_default(&out_layout, 2);
+            av_channel_layout_default(&out_layout, 2);
             g_audio_out_channels = 2;
-        }
-        if (ret < 0) {
-            return ret;
         }
 
         ret = swr_alloc_set_opts2(
