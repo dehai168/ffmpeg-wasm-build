@@ -289,7 +289,6 @@ fi
 
 IOV_DECODER_SRC="$SCRIPT_DIR/iov/iov_decoder.c"
 IOV_DECODER_OBJ="$SCRIPT_DIR/iov/iov_decoder.o"
-IOV_DECODER_POST_JS="$SCRIPT_DIR/iov/iov-decoder-post.js"
 
 if [ ! -f "$IOV_DECODER_SRC" ]; then
   log_error "未找到 iov decoder 源文件: $IOV_DECODER_SRC"
@@ -302,6 +301,7 @@ _ffbuild_cflags=""
 if [ -f "$FFMPEG_SRC/ffbuild/config.mak" ]; then
   _ffbuild_cflags=$(sed -n 's/^CFLAGS=//p' "$FFMPEG_SRC/ffbuild/config.mak" | head -1)
 fi
+rm -f "$IOV_DECODER_OBJ"
 # shellcheck disable=SC2086
 emcc -c "$IOV_DECODER_SRC" \
   -I"$FFMPEG_BUILD_DIR/include" \
@@ -322,14 +322,13 @@ emcc \
   "${EXTRA_LIBS[@]}" \
   -I"$FFMPEG_BUILD_DIR/include" \
   -I"$DEPS_DIR/include" \
-  --post-js "$IOV_DECODER_POST_JS" \
   -o "$OUTPUT_JS" \
   "${EMCC_LINK_FLAGS[@]}"
 
 log_ok "链接完成！输出文件："
 ls -lh "$OUTPUT_DIR/"
 
-if ! bash "$SCRIPT_DIR/scripts/verify-ffmpeg-core.sh" "$OUTPUT_JS"; then
+if ! bash "$SCRIPT_DIR/scripts/verify-ffmpeg-core.sh" "$OUTPUT_JS" "${OUTPUT_JS%.js}.wasm"; then
   log_error "ffmpeg-core.js 未通过 iov-h5player 导出校验，请检查 iov/wasm-exports.json 与链接日志"
   exit 1
 fi
