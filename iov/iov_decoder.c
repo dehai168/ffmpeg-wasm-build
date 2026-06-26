@@ -170,15 +170,27 @@ static int ensure_audio_decoder(enum AVCodecID codec_id) {
     return 0;
 }
 
-static int copy_plane(IovPlaneBuffer *plane, const uint8_t *src, int size) {
+static int copy_plane_tight(IovPlaneBuffer *plane, const uint8_t *src, int linesize, int width, int rows) {
+    int row;
+    int tight_size;
+
+    if (width <= 0 || rows <= 0) {
+        return 0;
+    }
+
+    tight_size = width * rows;
     free(plane->data);
-    plane->data = (uint8_t *)malloc(size);
+    plane->data = (uint8_t *)malloc(tight_size);
     if (!plane->data) {
         plane->size = 0;
         return AVERROR(ENOMEM);
     }
-    memcpy(plane->data, src, size);
-    plane->size = size;
+
+    for (row = 0; row < rows; row += 1) {
+        memcpy(plane->data + row * width, src + row * linesize, width);
+    }
+
+    plane->size = tight_size;
     return 0;
 }
 
@@ -246,17 +258,27 @@ static int store_video_frame(AVFrame *src, double timestamp_ms) {
     out->height = yuv->height;
     strncpy(out->format, "i420", sizeof(out->format) - 1);
 
-    ret = copy_plane(&out->planes[0], yuv->data[0], yuv->linesize[0] * yuv->height);
+    ret = copy_plane_tight(&out->planes[0], yuv->data[0], yuv->linesize[0], yuv->width, yuv->height);
     if (ret < 0) {
         av_frame_free(&converted);
         return ret;
     }
-    ret = copy_plane(&out->planes[1], yuv->data[1], yuv->linesize[1] * ((yuv->height + 1) / 2));
+    ret = copy_plane_tight(
+        &out->planes[1],
+        yuv->data[1],
+        yuv->linesize[1],
+        (yuv->width + 1) / 2,
+        (yuv->height + 1) / 2);
     if (ret < 0) {
         av_frame_free(&converted);
         return ret;
     }
-    ret = copy_plane(&out->planes[2], yuv->data[2], yuv->linesize[2] * ((yuv->height + 1) / 2));
+    ret = copy_plane_tight(
+        &out->planes[2],
+        yuv->data[2],
+        yuv->linesize[2],
+        (yuv->width + 1) / 2,
+        (yuv->height + 1) / 2);
     av_frame_free(&converted);
     return ret;
 }

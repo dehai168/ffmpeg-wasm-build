@@ -172,6 +172,8 @@ build_emcc_link_flags() {
     "-s ENVIRONMENT=web,worker"
     # 允许使用 SDL 等 Emscripten 内置 API（此处关闭减少体积）
     "-s USE_SDL=0"
+    # Do not run ffmpeg CLI main() on load; iov-h5player only needs exported decoder APIs.
+    "-s INVOKE_RUN=0"
     # 关闭 Emscripten 自带的异常处理（FFmpeg 不使用 C++ 异常）
     "-s DISABLE_EXCEPTION_CATCHING=1"
     # 错误处理：遇到 abort 时尽量给出有用信息
