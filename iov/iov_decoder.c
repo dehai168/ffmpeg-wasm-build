@@ -7,6 +7,7 @@
 #include <libavutil/opt.h>
 #include <libswresample/swresample.h>
 #include <libswscale/swscale.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,13 +16,15 @@
 #define IOV_AUDIO_BUFFER_SIZE (1024 * 1024)
 
 EMSCRIPTEN_KEEPALIVE
-void *iov_wasm_malloc(int size) {
-    return malloc((size_t)size);
+uint32_t iov_wasm_malloc(uint32_t size) {
+    return (uint32_t)(uintptr_t)malloc((size_t)size);
 }
 
 EMSCRIPTEN_KEEPALIVE
-void iov_wasm_free(void *ptr) {
-    free(ptr);
+void iov_wasm_free(uint32_t ptr) {
+    if (ptr) {
+        free((void *)(uintptr_t)ptr);
+    }
 }
 
 typedef struct IovPlaneBuffer {
