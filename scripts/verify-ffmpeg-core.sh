@@ -53,6 +53,10 @@ if [ "$delta" -gt 5 ]; then
   echo "warning: ffmpeg-core.js and ffmpeg-core.wasm timestamps differ by ${delta}s; copy both from the same build"
 fi
 
+if grep -q 'USE_PTHREADS' "$CORE_JS"; then
+  echo "warning: ffmpeg-core.js was built with USE_PTHREADS; default iov-h5player build expects single-thread (ENABLE_WASM_THREADS=0)"
+fi
+
 if [ "$missing" -ne 0 ]; then
   echo "ffmpeg-core.js is not a valid iov-h5player decoder build." >&2
   exit 1

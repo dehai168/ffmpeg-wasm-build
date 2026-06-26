@@ -39,10 +39,12 @@ download_ffmpeg() {
 # =============================================================================
 CONFIGURE_ARGS=()
 build_configure_args() {
-  # FFmpeg 6.1+ fftools/ffmpeg_dec.c uses pthread_t unconditionally, so -pthread
-  # must always be present.  ENABLE_THREADS only controls the thread-pool size.
-  # NOTE: these values contain spaces; they are stored as single array elements
-  # and must be expanded with "${CONFIGURE_ARGS[@]}" — never via word-split string.
+  # ENABLE_WASM_THREADS=1 时 FFmpeg fftools 需要 -pthread；单线程解码版不需要。
+  local thread_cflags=""
+  if [ "${ENABLE_WASM_THREADS:-0}" -eq 1 ]; then
+    thread_cflags="-pthread"
+  fi
+
   CONFIGURE_ARGS=(
     "--prefix=$FFMPEG_BUILD_DIR"
     # 目标平台：none 表示裸机/WASM
@@ -66,17 +68,27 @@ build_configure_args() {
     "--disable-debug"
     "--disable-runtime-cpudetect"
     "--disable-autodetect"
-    # 保留 ffmpeg 工具作为 WASM 入口
-    "--enable-ffmpeg"
-    "--disable-ffprobe"
-    "--disable-ffplay"
     # 额外 C 编译参数：值中含空格，必须作为整体传递（数组元素）
-    "--extra-cflags=-I${DEPS_DIR}/include -pthread"
-    "--extra-cxxflags=-I${DEPS_DIR}/include -pthread"
-    "--extra-ldflags=-L${DEPS_DIR}/lib -pthread"
-    # 避免 ffmpeg_g 在 pthread 构建下使用 Emscripten 默认 16MB 初始内存导致链接失败
+    "--extra-cflags=-I${DEPS_DIR}/include ${thread_cflags}"
+    "--extra-cxxflags=-I${DEPS_DIR}/include ${thread_cflags}"
+    "--extra-ldflags=-L${DEPS_DIR}/lib ${thread_cflags}"
     "--extra-ldexeflags=-sINITIAL_MEMORY=${INITIAL_MEMORY:-67108864}"
   )
+
+  if [ "${ENABLE_WASM_THREADS:-0}" -eq 0 ]; then
+    CONFIGURE_ARGS+=("--disable-pthreads")
+  fi
+
+  if [ "${ENABLE_FFMPEG_CLI:-0}" -eq 1 ]; then
+    CONFIGURE_ARGS+=("--enable-ffmpeg" "--disable-ffprobe" "--disable-ffplay")
+  else
+    CONFIGURE_ARGS+=(
+      "--disable-programs"
+      "--disable-avdevice"
+      "--disable-avfilter"
+      "--disable-avformat"
+    )
+  fi
 
   if [ "${ENABLE_H264_ENCODER:-0}" -eq 1 ] || [ "${ENABLE_H265_ENCODER:-0}" -eq 1 ]; then
     CONFIGURE_ARGS+=("--enable-gpl" "--enable-version3")
@@ -147,8 +159,9 @@ build_configure_args() {
     CONFIGURE_ARGS+=("--enable-demuxer=mpegts" "--enable-demuxer=mpegtsraw")
   fi
 
-  # 保留极小的 null muxer，便于在浏览器中做解码冒烟验证
-  CONFIGURE_ARGS+=("--enable-muxer=null")
+  if [ "${ENABLE_FFMPEG_CLI:-0}" -eq 1 ]; then
+    CONFIGURE_ARGS+=("--enable-muxer=null")
+  fi
 }
 
 # =============================================================================
@@ -166,8 +179,8 @@ build_emcc_link_flags() {
     "-s EXPORTED_FUNCTIONS=@$SCRIPT_DIR/iov/wasm-exports.json"
     # 确保 libc malloc/free 被链接并可供 EXPORTED_FUNCTIONS 导出
     "-s DEFAULT_LIBRARY_FUNCS_TO_INCLUDE=[\"\$malloc\",\"\$free\"]"
-    # 导出运行时方法：FS（虚拟文件系统）、callMain（调用 main）
-    "-s EXPORTED_RUNTIME_METHODS=[\"FS\",\"callMain\",\"ccall\",\"cwrap\",\"HEAPU8\",\"UTF8ToString\",\"stringToNewUTF8\"]"
+    # 导出运行时方法（播放器 worker 仅需 HEAPU8）
+    "-s EXPORTED_RUNTIME_METHODS=[\"HEAPU8\"]"
     # 目标环境：web + worker（兼容主线程和 Web Worker）
     "-s ENVIRONMENT=web,worker"
     # 允许使用 SDL 等 Emscripten 内置 API（此处关闭减少体积）
@@ -180,15 +193,14 @@ build_emcc_link_flags() {
     "-s ASSERTIONS=0"
   )
 
-  # ---- 线程支持 ----
-  # FFmpeg 6.1+ fftools require pthreads; USE_PTHREADS is always needed.
-  # ENABLE_THREADS controls the pool size: 0 → 1 (minimal), 1 → configured value.
-  local _pool_size=1
-  [ "${ENABLE_THREADS:-0}" -eq 1 ] && _pool_size="${PTHREAD_POOL_SIZE:-4}"
-  EMCC_LINK_FLAGS+=(
-    "-s USE_PTHREADS=1"
-    "-s PTHREAD_POOL_SIZE=${_pool_size}"
-  )
+  if [ "${ENABLE_WASM_THREADS:-0}" -eq 1 ]; then
+    local _pool_size=1
+    [ "${ENABLE_THREADS:-0}" -eq 1 ] && _pool_size="${PTHREAD_POOL_SIZE:-4}"
+    EMCC_LINK_FLAGS+=(
+      "-s USE_PTHREADS=1"
+      "-s PTHREAD_POOL_SIZE=${_pool_size}"
+    )
+  fi
 
   # ---- SIMD 优化 ----
   if [ "${ENABLE_SIMD:-0}" -eq 1 ]; then
@@ -198,6 +210,8 @@ build_emcc_link_flags() {
   # ---- 调试模式 ----
   if [ "${ENABLE_DEBUG:-0}" -eq 1 ]; then
     EMCC_LINK_FLAGS+=("-O0" "-g" "-s ASSERTIONS=2" "--source-map-base ./")
+  elif [ "${ENABLE_SIZE_OPTIMIZE:-0}" -eq 1 ]; then
+    EMCC_LINK_FLAGS+=("-Oz")
   else
     EMCC_LINK_FLAGS+=("-O3")
   fi
@@ -223,15 +237,24 @@ emmake make -j"$MAKE_JOBS"
 emmake make install
 
 # ---- 收集所有需要链接的 .a 静态库 -------------------------------------------
-FFMPEG_LIBS=(
-  "$FFMPEG_BUILD_DIR/lib/libavcodec.a"
-  "$FFMPEG_BUILD_DIR/lib/libavformat.a"
-  "$FFMPEG_BUILD_DIR/lib/libavfilter.a"
-  "$FFMPEG_BUILD_DIR/lib/libavutil.a"
-  "$FFMPEG_BUILD_DIR/lib/libswresample.a"
-  "$FFMPEG_BUILD_DIR/lib/libswscale.a"
-  "$FFMPEG_BUILD_DIR/lib/libavdevice.a"
-)
+if [ "${ENABLE_FFMPEG_CLI:-0}" -eq 1 ]; then
+  FFMPEG_LIBS=(
+    "$FFMPEG_BUILD_DIR/lib/libavcodec.a"
+    "$FFMPEG_BUILD_DIR/lib/libavformat.a"
+    "$FFMPEG_BUILD_DIR/lib/libavfilter.a"
+    "$FFMPEG_BUILD_DIR/lib/libavutil.a"
+    "$FFMPEG_BUILD_DIR/lib/libswresample.a"
+    "$FFMPEG_BUILD_DIR/lib/libswscale.a"
+    "$FFMPEG_BUILD_DIR/lib/libavdevice.a"
+  )
+else
+  FFMPEG_LIBS=(
+    "$FFMPEG_BUILD_DIR/lib/libavcodec.a"
+    "$FFMPEG_BUILD_DIR/lib/libavutil.a"
+    "$FFMPEG_BUILD_DIR/lib/libswresample.a"
+    "$FFMPEG_BUILD_DIR/lib/libswscale.a"
+  )
+fi
 
 EXTRA_LIBS=()
 if [ "${ENABLE_H264_ENCODER:-0}" -eq 1 ] && [ -f "$DEPS_DIR/lib/libx264.a" ]; then
@@ -241,52 +264,52 @@ if [ "${ENABLE_H265_ENCODER:-0}" -eq 1 ] && [ -f "$DEPS_DIR/lib/libx265.a" ]; th
   EXTRA_LIBS+=("$DEPS_DIR/lib/libx265.a" "-lstdc++")
 fi
 
-# ---- 收集 fftools 目标文件（ffmpeg 命令行工具的 .o 文件）--------------------
+# ---- 收集 fftools 目标文件（仅 ENABLE_FFMPEG_CLI=1 时）-----------------------
 FFTOOLS_OBJS=()
-for obj in "$FFMPEG_SRC/fftools/ffmpeg.o" "$FFMPEG_SRC"/fftools/ffmpeg_*.o \
-           "$FFMPEG_SRC/fftools/cmdutils.o" "$FFMPEG_SRC/fftools/opt_common.o" \
-           "$FFMPEG_SRC/fftools/objpool.o" "$FFMPEG_SRC/fftools/sync_queue.o" \
-           "$FFMPEG_SRC/fftools/thread_queue.o"; do
-  [ -f "$obj" ] && FFTOOLS_OBJS+=("$obj")
-done
-
-# 某些配置下（如 --target-os=none）make 不会生成 fftools 目标文件，
-# 因为此时 Makefile 中不存在 "ffmpeg" 可执行目标。直接用 emcc 编译各 .c 源文件。
-if [ ! -f "$FFMPEG_SRC/fftools/cmdutils.o" ] || [ ! -f "$FFMPEG_SRC/fftools/opt_common.o" ]; then
-  log_warn "fftools 目标文件不完整，直接编译 fftools 源文件..."
-  # 读取 configure 生成的 CFLAGS（含 -std=、-D 宏等），缺失时静默忽略
-  _ffbuild_cflags=""
-  if [ -f "$FFMPEG_SRC/ffbuild/config.mak" ]; then
-    _ffbuild_cflags=$(sed -n 's/^CFLAGS=//p' "$FFMPEG_SRC/ffbuild/config.mak" | head -1)
-  fi
-  # FFmpeg 6.1+ fftools require pthreads unconditionally.
-  _thread_flag="-pthread"
-  for src in "$FFMPEG_SRC/fftools/"*.c; do
-    obj="${src%.c}.o"
-    [ -f "$obj" ] && continue
-    log_info "编译 fftools/$(basename "$src")..."
-    # shellcheck disable=SC2086
-    emcc -c "$src" \
-      -I"$FFMPEG_SRC" \
-      -I"$FFMPEG_SRC/fftools" \
-      -I"$FFMPEG_BUILD_DIR/include" \
-      -I"$DEPS_DIR/include" \
-      $_thread_flag \
-      $_ffbuild_cflags \
-      -o "$obj"
-  done
-  FFTOOLS_OBJS=()
+if [ "${ENABLE_FFMPEG_CLI:-0}" -eq 1 ]; then
   for obj in "$FFMPEG_SRC/fftools/ffmpeg.o" "$FFMPEG_SRC"/fftools/ffmpeg_*.o \
              "$FFMPEG_SRC/fftools/cmdutils.o" "$FFMPEG_SRC/fftools/opt_common.o" \
              "$FFMPEG_SRC/fftools/objpool.o" "$FFMPEG_SRC/fftools/sync_queue.o" \
              "$FFMPEG_SRC/fftools/thread_queue.o"; do
     [ -f "$obj" ] && FFTOOLS_OBJS+=("$obj")
   done
-fi
 
-if [ ${#FFTOOLS_OBJS[@]} -eq 0 ]; then
-  log_error "未找到可链接的 fftools 目标文件"
-  exit 1
+  if [ ! -f "$FFMPEG_SRC/fftools/cmdutils.o" ] || [ ! -f "$FFMPEG_SRC/fftools/opt_common.o" ]; then
+    log_warn "fftools 目标文件不完整，直接编译 fftools 源文件..."
+    _ffbuild_cflags=""
+    if [ -f "$FFMPEG_SRC/ffbuild/config.mak" ]; then
+      _ffbuild_cflags=$(sed -n 's/^CFLAGS=//p' "$FFMPEG_SRC/ffbuild/config.mak" | head -1)
+    fi
+    _thread_flag="-pthread"
+    for src in "$FFMPEG_SRC/fftools/"*.c; do
+      obj="${src%.c}.o"
+      [ -f "$obj" ] && continue
+      log_info "编译 fftools/$(basename "$src")..."
+      # shellcheck disable=SC2086
+      emcc -c "$src" \
+        -I"$FFMPEG_SRC" \
+        -I"$FFMPEG_SRC/fftools" \
+        -I"$FFMPEG_BUILD_DIR/include" \
+        -I"$DEPS_DIR/include" \
+        $_thread_flag \
+        $_ffbuild_cflags \
+        -o "$obj"
+    done
+    FFTOOLS_OBJS=()
+    for obj in "$FFMPEG_SRC/fftools/ffmpeg.o" "$FFMPEG_SRC"/fftools/ffmpeg_*.o \
+               "$FFMPEG_SRC/fftools/cmdutils.o" "$FFMPEG_SRC/fftools/opt_common.o" \
+               "$FFMPEG_SRC/fftools/objpool.o" "$FFMPEG_SRC/fftools/sync_queue.o" \
+               "$FFMPEG_SRC/fftools/thread_queue.o"; do
+      [ -f "$obj" ] && FFTOOLS_OBJS+=("$obj")
+    done
+  fi
+
+  if [ ${#FFTOOLS_OBJS[@]} -eq 0 ]; then
+    log_error "未找到可链接的 fftools 目标文件"
+    exit 1
+  fi
+else
+  log_info "跳过 fftools 链接（ENABLE_FFMPEG_CLI=0，仅 iov_decoder 解码版）"
 fi
 
 IOV_DECODER_SRC="$SCRIPT_DIR/iov/iov_decoder.c"
@@ -298,7 +321,10 @@ if [ ! -f "$IOV_DECODER_SRC" ]; then
 fi
 
 log_info "编译 iov decoder..."
-_thread_flag="-pthread"
+_thread_flag=""
+if [ "${ENABLE_WASM_THREADS:-0}" -eq 1 ]; then
+  _thread_flag="-pthread"
+fi
 _ffbuild_cflags=""
 if [ -f "$FFMPEG_SRC/ffbuild/config.mak" ]; then
   _ffbuild_cflags=$(sed -n 's/^CFLAGS=//p' "$FFMPEG_SRC/ffbuild/config.mak" | head -1)
@@ -317,11 +343,16 @@ log_info "链接生成 WASM 产物..."
 build_emcc_link_flags
 OUTPUT_JS="$OUTPUT_DIR/${OUTPUT_NAME:-ffmpeg-core}.js"
 
+LINK_INPUTS=()
+if [ "${ENABLE_FFMPEG_CLI:-0}" -eq 1 ]; then
+  LINK_INPUTS+=("${FFTOOLS_OBJS[@]}")
+fi
+LINK_INPUTS+=("$IOV_DECODER_OBJ")
+LINK_INPUTS+=("${FFMPEG_LIBS[@]}")
+LINK_INPUTS+=("${EXTRA_LIBS[@]}")
+
 emcc \
-  "${FFTOOLS_OBJS[@]}" \
-  "$IOV_DECODER_OBJ" \
-  "${FFMPEG_LIBS[@]}" \
-  "${EXTRA_LIBS[@]}" \
+  "${LINK_INPUTS[@]}" \
   -I"$FFMPEG_BUILD_DIR/include" \
   -I"$DEPS_DIR/include" \
   -o "$OUTPUT_JS" \

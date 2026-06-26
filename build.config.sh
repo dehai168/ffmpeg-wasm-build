@@ -45,30 +45,31 @@ ENABLE_AAC=1
 # 启用 MP3 音频解码器
 ENABLE_MP3=1
 
-# 启用 Opus 音频解码器（低延迟流常用）
-ENABLE_OPUS=1
+# 启用 Opus 音频解码器（低延迟流常用；关闭可减小 wasm 体积）
+ENABLE_OPUS=0
 
 # 启用 VP8/VP9 视频编解码器（WebM 格式支持）
 ENABLE_VP8_VP9=0
 
 # -----------------------------------------------------------------------------
 # 容器 / 封装格式支持（影响 wasm 体积，按需开启）
+# iov-h5player 在 JS 侧解 FLV，WASM 只需解码器，默认全部关闭。
 # -----------------------------------------------------------------------------
 
 # MP4 / MOV 容器（H.264/H.265 最常见封装）
-ENABLE_FMT_MP4=1
+ENABLE_FMT_MP4=0
 
 # Matroska / WebM 容器（MKV、WebM）
-ENABLE_FMT_MKV=1
+ENABLE_FMT_MKV=0
 
-# FLV 容器（直播流常用）
-ENABLE_FMT_FLV=1
+# FLV 容器（直播流常用；播放器在 JS 解复用，无需 FFmpeg demuxer）
+ENABLE_FMT_FLV=0
 
 # HLS / TS 流（HTTP Live Streaming）
-ENABLE_FMT_HLS=1
+ENABLE_FMT_HLS=0
 
 # MPEG-PS / MPEG-TS
-ENABLE_FMT_MPEGTS=1
+ENABLE_FMT_MPEGTS=0
 
 # -----------------------------------------------------------------------------
 # 网络协议支持
@@ -86,7 +87,7 @@ ENABLE_NETWORK=0
 
 # 初始内存分配大小（字节），推荐 32~64 MB
 # 必须是 65536 (64KB) 的整数倍
-INITIAL_MEMORY=$((64 * 1024 * 1024))   # 64 MB
+INITIAL_MEMORY=$((32 * 1024 * 1024))   # 32 MB
 
 # 允许的最大内存（字节）
 # 设置较大值可避免处理大文件时 OOM，但实际用多少取决于运行时
@@ -96,19 +97,26 @@ MAXIMUM_MEMORY=$((2 * 1024 * 1024 * 1024))  # 2 GB
 ALLOW_MEMORY_GROWTH=1
 
 # -----------------------------------------------------------------------------
-# 多线程支持
-# FFmpeg 6.1+ 的 fftools 无条件使用 pthreads，因此最终产物始终需要浏览器支持
-# SharedArrayBuffer，且服务端需设置以下响应头：
-#   Cross-Origin-Opener-Policy: same-origin
-#   Cross-Origin-Embedder-Policy: require-corp
+# WASM 线程模型
 #
-# ENABLE_THREADS=0：使用 pthread 线程池大小 1（最小开销，无并行解码优化）
-# ENABLE_THREADS=1：使用下方 PTHREAD_POOL_SIZE 配置的线程数（并行解码更快）
+# ENABLE_WASM_THREADS=0（默认，推荐）：
+#   单线程 WASM，不启用 Emscripten pthread。
+#   不需要 COOP/COEP / crossOriginIsolated，可用 http://IP 直接访问。
+#   解码在 Web Worker 中运行，不阻塞主线程。
+#   仅链接 iov_decoder + libavcodec/libavutil/swresample/swscale，体积更小。
+#
+# ENABLE_WASM_THREADS=1：
+#   pthread 版 WASM，需要页面 cross-origin isolated（COOP/COEP 或 HTTPS）。
+#   链接 ffmpeg CLI (fftools)，体积更大。
 # -----------------------------------------------------------------------------
 
-ENABLE_THREADS=0
+ENABLE_WASM_THREADS=0
 
-# 多线程时使用的线程池大小（仅 ENABLE_THREADS=1 时生效）
+# 是否链接 ffmpeg 命令行 (fftools)。播放器仅需 iov_decoder 时保持 0。
+ENABLE_FFMPEG_CLI=0
+
+# 以下仅在 ENABLE_WASM_THREADS=1 时生效
+ENABLE_THREADS=0
 PTHREAD_POOL_SIZE=4
 
 # -----------------------------------------------------------------------------
@@ -124,6 +132,9 @@ ENABLE_SIMD=0
 # -----------------------------------------------------------------------------
 
 ENABLE_DEBUG=0
+
+# 优先减小 wasm 体积（-Oz）；关闭则使用 -O3 略快但更大
+ENABLE_SIZE_OPTIMIZE=1
 
 # -----------------------------------------------------------------------------
 # 输出设置

@@ -1,6 +1,6 @@
 # ffmpeg-wasm-build
 
-将 FFmpeg 编译为 **WebAssembly (WASM)**，供 H5 播放器在浏览器端直接调用，默认仅保留 **H.264 / H.265 / AAC / Opus** 解码与常见容器解封装能力，以尽量缩小 `.wasm` 体积并缩短编译时间。
+将 FFmpeg 编译为 **WebAssembly (WASM)**，供 H5 播放器在浏览器端直接调用。默认构建为 **单线程解码版**（H.264/H.265/AAC/MP3，无容器 demuxer、无 Opus），体积更小，且 **不需要 COOP/COEP**。
 
 ---
 
@@ -92,7 +92,7 @@ bash scripts/verify-ffmpeg-core.sh output/ffmpeg-core.js
 
 `verify-ffmpeg-core.sh` 会检查产物里是否包含 `_iov_decoder_decode`、`_iov_wasm_malloc`（或 `_malloc`）等 WASM 导出。`build.sh` 链接结束后也会自动运行该校验。
 
-解码输出优先为 **I420 YUV 平面帧**，由播放器 WebGL 渲染，适合移动端浏览器和微信小程序 WebView 等无 MSE 场景。页面需配置 COOP/COEP 以启用 pthreads + SharedArrayBuffer。
+解码输出优先为 **I420 YUV 平面帧**，由播放器 WebGL 渲染，适合移动端浏览器和微信小程序 WebView 等无 MSE 场景。解码在 **Web Worker** 中运行，不阻塞主线程；默认单线程 WASM **无需** COOP/COEP，可直接 `http://IP` 访问。
 
 ---
 
@@ -109,18 +109,20 @@ EMSDK_VERSION="3.1.58"      # Emscripten SDK 版本
 
 # 编解码器（0=关闭，1=开启）
 ENABLE_H264_DECODER=1       # H.264 解码（播放器必需）
-ENABLE_H264_ENCODER=0       # H.264 编码（默认关闭）
-ENABLE_H265_DECODER=1       # H.265/HEVC 解码（播放器必需）
-ENABLE_H265_ENCODER=0       # H.265/HEVC 编码（默认关闭）
+ENABLE_H265_DECODER=1       # H.265/HEVC 解码
 ENABLE_AAC=1                # AAC 音频解码
-ENABLE_OPUS=1               # Opus 音频解码
+ENABLE_MP3=1                # MP3 音频解码
+ENABLE_OPUS=0               # Opus（默认关闭以减小体积）
+
+# WASM 线程模型
+ENABLE_WASM_THREADS=0       # 0=单线程（推荐，无需 COOP/COEP）
+ENABLE_FFMPEG_CLI=0         # 0=仅 iov_decoder，不链接 ffmpeg CLI
 
 # WASM 内存
-INITIAL_MEMORY=$((64*1024*1024))    # 初始 64MB
-MAXIMUM_MEMORY=$((2*1024*1024*1024)) # 最大 2GB
+INITIAL_MEMORY=$((32*1024*1024))    # 初始 32MB
+ENABLE_SIZE_OPTIMIZE=1      # -Oz 减小体积
 
 # 高级特性（实验性）
-ENABLE_THREADS=0            # 多线程（需要 SharedArrayBuffer）
 ENABLE_SIMD=0               # SIMD 优化（需要浏览器支持）
 ```
 
