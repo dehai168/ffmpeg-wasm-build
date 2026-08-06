@@ -120,7 +120,7 @@ ENABLE_FFMPEG_CLI=0         # 0=仅 iov_decoder，不链接 ffmpeg CLI
 
 # WASM 内存
 INITIAL_MEMORY=$((32*1024*1024))    # 初始 32MB
-ENABLE_SIZE_OPTIMIZE=1      # -Oz 减小体积
+ENABLE_SIZE_OPTIMIZE=1      # -Oz/-flto/--enable-small 等体积优化
 
 # 高级特性（实验性）
 ENABLE_SIMD=0               # SIMD 优化（需要浏览器支持）
@@ -128,6 +128,17 @@ ENABLE_SIMD=0               # SIMD 优化（需要浏览器支持）
 
 > 详细说明请直接查看 `build.config.sh`，每个参数都有中文注释。
 
+### 减小 wasm 体积
+
+默认配置已面向体积优化。产物仍偏大时，可按需关闭解码器：
+
+| 开关 | 影响 |
+|---|---|
+| `ENABLE_H265_DECODER=0` | 去掉 HEVC，通常可再省约 0.5~1 MB |
+| `ENABLE_MP3=0` / `ENABLE_AAC=0` | 去掉对应音频解码器 |
+| `ENABLE_SIZE_OPTIMIZE=1` | 必须开启；否则不会启用 `-Oz` / LTO / `--enable-small` |
+
+服务端建议对 `.wasm` 启用 **Brotli** 或 gzip（传输体积可再降约 60%~70%）。
 ---
 
 ## 在 H5 播放器中使用
@@ -196,8 +207,7 @@ self.onmessage = async (e) => {
 A: 默认解码版由于不编译 libx264/libx265，通常会比完整编解码版快很多；若手动开启编码器，首次完整编译通常仍需 20~60 分钟（取决于 CI runner 性能）。
 
 **Q: 生成的 wasm 文件有多大？**  
-A: 默认解码版会明显小于包含 libx264/libx265 的完整编解码版。可以继续通过关闭不需要的解码器、解析器和容器格式来减小体积。
-
+A: 默认解码版（H.264/H.265/AAC/MP3）在开启 `ENABLE_SIZE_OPTIMIZE` 后通常约 **1.5~2.5 MB**（视 Emscripten/FFmpeg 版本而定）。关闭不需要的解码器、保持 `--enable-small`/`-Oz`/`-flto` 可继续缩小。
 **Q: 浏览器报 SharedArrayBuffer 错误怎么办？**  
 A: 将 `ENABLE_THREADS` 设为 `0`（默认），或在服务器响应头中添加：  
 `Cross-Origin-Opener-Policy: same-origin`  

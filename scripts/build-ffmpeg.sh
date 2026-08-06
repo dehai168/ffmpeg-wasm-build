@@ -41,8 +41,18 @@ CONFIGURE_ARGS=()
 build_configure_args() {
   # ENABLE_WASM_THREADS=1 时 FFmpeg fftools 需要 -pthread；单线程解码版不需要。
   local thread_cflags=""
+  local size_cflags=""
+  local size_ldflags=""
   if [ "${ENABLE_WASM_THREADS:-0}" -eq 1 ]; then
     thread_cflags="-pthread"
+  fi
+  # 体积优先：对象文件阶段就要 -Oz + LTO，仅靠链接期 -Oz 压不下去
+  if [ "${ENABLE_DEBUG:-0}" -eq 0 ] && [ "${ENABLE_SIZE_OPTIMIZE:-0}" -eq 1 ]; then
+    size_cflags="-Oz -flto"
+    size_ldflags="-flto"
+  elif [ "${ENABLE_DEBUG:-0}" -eq 0 ]; then
+    size_cflags="-O3 -flto"
+    size_ldflags="-flto"
   fi
 
   CONFIGURE_ARGS=(
@@ -68,12 +78,19 @@ build_configure_args() {
     "--disable-debug"
     "--disable-runtime-cpudetect"
     "--disable-autodetect"
+    "--disable-iconv"
+    "--disable-zlib"
     # 额外 C 编译参数：值中含空格，必须作为整体传递（数组元素）
-    "--extra-cflags=-I${DEPS_DIR}/include ${thread_cflags}"
-    "--extra-cxxflags=-I${DEPS_DIR}/include ${thread_cflags}"
-    "--extra-ldflags=-L${DEPS_DIR}/lib ${thread_cflags}"
+    "--extra-cflags=-I${DEPS_DIR}/include ${thread_cflags} ${size_cflags}"
+    "--extra-cxxflags=-I${DEPS_DIR}/include ${thread_cflags} ${size_cflags}"
+    "--extra-ldflags=-L${DEPS_DIR}/lib ${thread_cflags} ${size_ldflags}"
     "--extra-ldexeflags=-sINITIAL_MEMORY=${INITIAL_MEMORY:-67108864}"
   )
+
+  if [ "${ENABLE_DEBUG:-0}" -eq 0 ] && [ "${ENABLE_SIZE_OPTIMIZE:-0}" -eq 1 ]; then
+    # FFmpeg 内置小体积模式：用更小的表 / 算法换体积
+    CONFIGURE_ARGS+=("--enable-small" "--optflags=-Oz")
+  fi
 
   if [ "${ENABLE_WASM_THREADS:-0}" -eq 0 ]; then
     CONFIGURE_ARGS+=("--disable-pthreads")
@@ -123,9 +140,9 @@ build_configure_args() {
     CONFIGURE_ARGS+=("--enable-parser=aac" "--enable-parser=aac_latm")
   fi
 
-  # ---- MP3 ----
+  # ---- MP3（仅保留 float 解码器，避免与整数版重复占体积）----
   if [ "${ENABLE_MP3:-0}" -eq 1 ]; then
-    CONFIGURE_ARGS+=("--enable-decoder=mp3" "--enable-decoder=mp3float")
+    CONFIGURE_ARGS+=("--enable-decoder=mp3float")
     CONFIGURE_ARGS+=("--enable-parser=mpegaudio")
   fi
 
@@ -169,6 +186,26 @@ build_configure_args() {
 # =============================================================================
 EMCC_LINK_FLAGS=()
 build_emcc_link_flags() {
+  local exports_file="$SCRIPT_DIR/iov/wasm-exports.json"
+  # CLI 版需要额外导出 _main
+  if [ "${ENABLE_FFMPEG_CLI:-0}" -eq 1 ]; then
+    exports_file="$FFMPEG_BUILD_DIR/wasm-exports.cli.json"
+    mkdir -p "$FFMPEG_BUILD_DIR"
+    if command -v python3 &>/dev/null; then
+      python3 -c "
+import json, sys
+src = json.load(open(sys.argv[1], encoding='utf-8'))
+if '_main' not in src:
+    src = ['_main'] + src
+json.dump(src, open(sys.argv[2], 'w', encoding='utf-8'), indent=2)
+" "$SCRIPT_DIR/iov/wasm-exports.json" "$exports_file"
+    else
+      printf '[\n  "_main",\n' > "$exports_file"
+      # 去掉首行 [ 与末行 ]，拼进 _main 后的列表
+      tail -n +2 "$SCRIPT_DIR/iov/wasm-exports.json" >> "$exports_file"
+    fi
+  fi
+
   EMCC_LINK_FLAGS=(
     "-s MODULARIZE=1"
     "-s EXPORT_NAME=${EXPORT_NAME:-createFFmpegCore}"
@@ -176,7 +213,7 @@ build_emcc_link_flags() {
     "-s INITIAL_MEMORY=${INITIAL_MEMORY:-67108864}"
     "-s MAXIMUM_MEMORY=${MAXIMUM_MEMORY:-2147483648}"
     # 导出供 JS 调用的函数（使用 response file，避免命令行过长被截断）
-    "-s EXPORTED_FUNCTIONS=@$SCRIPT_DIR/iov/wasm-exports.json"
+    "-s EXPORTED_FUNCTIONS=@$exports_file"
     # 确保 libc malloc/free 被链接并可供 EXPORTED_FUNCTIONS 导出
     "-s DEFAULT_LIBRARY_FUNCS_TO_INCLUDE=[\"\$malloc\",\"\$free\"]"
     # 导出运行时方法（播放器 worker 仅需 HEAPU8）
@@ -191,7 +228,20 @@ build_emcc_link_flags() {
     "-s DISABLE_EXCEPTION_CATCHING=1"
     # 错误处理：遇到 abort 时尽量给出有用信息
     "-s ASSERTIONS=0"
+    # 更小的分配器（相对 dlmalloc 可省数十 KB）
+    "-s MALLOC=emmalloc"
+    # 栈检查关闭（发布构建）
+    "-s STACK_OVERFLOW_CHECK=0"
   )
+
+  # 解码版不需要 MEMFS / 虚拟文件系统
+  if [ "${ENABLE_FFMPEG_CLI:-0}" -eq 0 ]; then
+    EMCC_LINK_FLAGS+=("-s FILESYSTEM=0")
+  fi
+
+  if [ "${USE_ES6_MODULE:-0}" -eq 1 ]; then
+    EMCC_LINK_FLAGS+=("-s EXPORT_ES6=1" "-s USE_ES6_IMPORT_META=0")
+  fi
 
   if [ "${ENABLE_WASM_THREADS:-0}" -eq 1 ]; then
     local _pool_size=1
@@ -207,13 +257,21 @@ build_emcc_link_flags() {
     EMCC_LINK_FLAGS+=("-msimd128")
   fi
 
-  # ---- 调试模式 ----
+  # ---- 调试 / 体积 / 性能 ----
   if [ "${ENABLE_DEBUG:-0}" -eq 1 ]; then
     EMCC_LINK_FLAGS+=("-O0" "-g" "-s ASSERTIONS=2" "--source-map-base ./")
   elif [ "${ENABLE_SIZE_OPTIMIZE:-0}" -eq 1 ]; then
-    EMCC_LINK_FLAGS+=("-Oz")
+    log_info "链接体积优化: -Oz -flto --closure 1 EVAL_CTORS=1 emmalloc"
+    EMCC_LINK_FLAGS+=(
+      "-Oz"
+      "-flto"
+      # Closure Compiler 压缩 JS 胶水
+      "--closure=1"
+      # 编译期求值静态构造，减小启动代码
+      "-sEVAL_CTORS=1"
+    )
   else
-    EMCC_LINK_FLAGS+=("-O3")
+    EMCC_LINK_FLAGS+=("-O3" "-flto")
   fi
 }
 
@@ -227,6 +285,9 @@ cd "$FFMPEG_SRC"
 
 # ---- 配置 FFmpeg（使用 emconfigure 注入 Emscripten 工具链）-----------------
 log_info "配置 FFmpeg (emconfigure)..."
+if [ "${ENABLE_SIZE_OPTIMIZE:-0}" -eq 1 ] && [ "${ENABLE_DEBUG:-0}" -eq 0 ]; then
+  log_info "编译体积优化: --enable-small -Oz -flto"
+fi
 build_configure_args
 emconfigure ./configure "${CONFIGURE_ARGS[@]}"
 

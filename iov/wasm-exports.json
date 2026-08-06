@@ -1,5 +1,4 @@
 [
-  "_main",
   "_malloc",
   "_free",
   "_iov_wasm_malloc",
