@@ -261,14 +261,12 @@ json.dump(src, open(sys.argv[2], 'w', encoding='utf-8'), indent=2)
   if [ "${ENABLE_DEBUG:-0}" -eq 1 ]; then
     EMCC_LINK_FLAGS+=("-O0" "-g" "-s ASSERTIONS=2" "--source-map-base ./")
   elif [ "${ENABLE_SIZE_OPTIMIZE:-0}" -eq 1 ]; then
-    log_info "链接体积优化: -Oz -flto --closure 1 EVAL_CTORS=1 emmalloc"
+    # 不用 --closure：会改写 Module["_xxx"] 导出形态，破坏 iov-h5player 校验与调用。
+    # JS 胶水通常只有几十 KB，体积收益主要来自 -Oz/-flto/--enable-small。
+    log_info "链接体积优化: -Oz -flto emmalloc FILESYSTEM=0"
     EMCC_LINK_FLAGS+=(
       "-Oz"
       "-flto"
-      # Closure Compiler 压缩 JS 胶水
-      "--closure=1"
-      # 编译期求值静态构造，减小启动代码
-      "-sEVAL_CTORS=1"
     )
   else
     EMCC_LINK_FLAGS+=("-O3" "-flto")

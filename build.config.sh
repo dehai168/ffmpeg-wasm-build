@@ -135,7 +135,8 @@ ENABLE_DEBUG=0
 
 # 优先减小 wasm 体积（推荐保持开启）：
 #   - FFmpeg：--enable-small、编译/链接 -Oz -flto
-#   - emcc：-Oz -flto、emmalloc、FILESYSTEM=0（解码版）、Closure 压缩 JS
+#   - emcc：-Oz -flto、emmalloc、FILESYSTEM=0（解码版）
+#   注意：不用 --closure，避免改写 Module["_xxx"] 导出导致播放器无法调用
 # 关闭则使用 -O3（略快但更大）
 ENABLE_SIZE_OPTIMIZE=1
 
